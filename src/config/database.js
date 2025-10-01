@@ -4,30 +4,53 @@ import config from './environment.js';
 /**
  * Enhanced Supabase client with retry logic and monitoring
  */
-export const supabase = createClient(
-  config.DATABASE.SUPABASE_URL,
-  config.DATABASE.SUPABASE_KEY,
-  {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false
-    },
-    db: {
-      schema: 'public'
-    },
-    realtime: {
-      params: {
-        eventsPerSecond: 10
-      }
-    },
-    global: {
-      headers: {
-        'x-application-name': 'ai-pharmacy-chatbot',
-        'x-client-version': '1.0.0'
+let supabase;
+
+try {
+  if (!config.DATABASE.SUPABASE_URL) {
+    throw new Error('SUPABASE_URL environment variable is not set. Please configure your deployment environment variables.');
+  }
+  
+  if (!config.DATABASE.SUPABASE_KEY) {
+    throw new Error('SUPABASE_KEY environment variable is not set. Please configure your deployment environment variables.');
+  }
+
+  supabase = createClient(
+    config.DATABASE.SUPABASE_URL,
+    config.DATABASE.SUPABASE_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      },
+      db: {
+        schema: 'public'
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 10
+        }
+      },
+      global: {
+        headers: {
+          'x-application-name': 'ai-pharmacy-chatbot',
+          'x-client-version': '1.0.0'
+        }
       }
     }
-  }
-);
+  );
+  
+  console.log('✅ Supabase client initialized successfully');
+} catch (error) {
+  console.error('❌ Failed to initialize Supabase client:', error.message);
+  console.error('\n🔧 REQUIRED ENVIRONMENT VARIABLES:');
+  console.error(`  SUPABASE_URL=${config.DATABASE.SUPABASE_URL || 'NOT_SET'}`);
+  console.error(`  SUPABASE_KEY=${config.DATABASE.SUPABASE_KEY || 'NOT_SET'}`);
+  console.error('\n📝 Please set these in your deployment platform environment variables.');
+  throw error;
+}
+
+export { supabase };
 
 /**
  * Database health check with timeout and simplified diagnostics

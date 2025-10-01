@@ -118,12 +118,32 @@ export function validateConfig() {
 
   if (missing.length > 0) {
     const missingKeys = missing.map(({ key }) => key).join(', ');
+    
+    console.error('❌ Configuration validation failed!');
+    console.error(`Missing required environment variables: ${missingKeys}`);
+    console.error('\n🔧 DEPLOYMENT SETUP REQUIRED:');
+    console.error('Please set these environment variables in your deployment platform:');
+    console.error('');
+    
+    required.forEach(({ key, value }) => {
+      const status = value ? '✅' : '❌';
+      console.error(`  ${status} ${key}=${value || 'NOT_SET'}`);
+    });
+    
+    console.error('\n📚 For setup instructions, see:');
+    console.error('  - Copy .env.example to .env (for local development)');
+    console.error('  - Set environment variables in your deployment platform');
+    console.error('  - Supabase: https://supabase.com/docs/guides/getting-started');
+    console.error('  - OpenAI: https://platform.openai.com/api-keys');
+    console.error('');
+    
     throw new Error(`Missing required environment variables: ${missingKeys}`);
   }
 
   // Production-specific validations
   if (config.SERVER.IS_PRODUCTION) {
     if (config.SECURITY.JWT_SECRET === 'your-super-secret-jwt-key-change-this') {
+      console.error('❌ JWT_SECRET must be changed in production');
       throw new Error('JWT_SECRET must be changed in production');
     }
 
