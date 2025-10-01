@@ -48,8 +48,11 @@ export const config = {
     SESSION_SECRET: process.env.SESSION_SECRET || 'session-secret',
     ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS?.split(',') || [
       'http://localhost:3000',
-      'http://localhost:5173',
-      'http://localhost:8080'
+      'http://localhost:5173', 
+      'http://localhost:8080',
+      'https://mns-chatbot-production.up.railway.app',
+      'https://*.up.railway.app',
+      'https://*.railway.app'
     ]
   },
 
@@ -147,9 +150,16 @@ export function validateConfig() {
       throw new Error('JWT_SECRET must be changed in production');
     }
 
-    if (config.SECURITY.ALLOWED_ORIGINS.includes('http://localhost:3000')) {
-      console.warn('⚠️  Warning: localhost origins allowed in production');
+    // Only warn about localhost in production if no production origins are set
+    const hasProductionOrigins = config.SECURITY.ALLOWED_ORIGINS.some(origin => 
+      origin.includes('railway.app') || origin.includes('herokuapp.com') || origin.includes('vercel.app')
+    );
+    
+    if (config.SECURITY.ALLOWED_ORIGINS.includes('http://localhost:3000') && !hasProductionOrigins) {
+      console.warn('⚠️  Warning: Only localhost origins configured in production');
     }
+
+    console.log('✅ Production CORS origins:', config.SECURITY.ALLOWED_ORIGINS.join(', '));
   }
 
   console.log('✅ Configuration validated successfully');

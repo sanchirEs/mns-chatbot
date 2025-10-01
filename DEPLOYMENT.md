@@ -1,5 +1,40 @@
 # Deployment Guide
 
+## Current Issue Fix ✅
+
+Your issue has been resolved! The changes include:
+
+1. **Fixed CORS Configuration**: Added your production frontend URL to allowed origins
+2. **Enhanced Debugging**: Added detailed request logging and CORS debugging
+3. **Graceful Shutdown**: Added proper shutdown handling to prevent container issues
+4. **Railway-Specific Config**: Configured for Railway deployment platform
+
+## Quick Railway Setup
+
+Your backend should now work with these environment variables set in Railway:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
+OPENAI_API_KEY=sk-your-openai-key
+NODE_ENV=production
+```
+
+**Frontend API Base URL**: Use your Railway assigned domain (check Railway dashboard)
+
+## Testing Your Deployment
+
+Run the test script to verify everything works:
+
+```bash
+node railway-test.js
+```
+
+Or manually test endpoints:
+- Health: `https://your-app.up.railway.app/health`
+- Status: `https://your-app.up.railway.app/status`
+- Chat: `POST https://your-app.up.railway.app/api/chat`
+
 ## Required Environment Variables
 
 Your deployment is failing because required environment variables are not set. You need to configure these in your deployment platform:

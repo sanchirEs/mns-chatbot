@@ -37,13 +37,54 @@ try {
     crossOriginEmbedderPolicy: false
   }));
 
-  // CORS
+  // CORS with detailed logging
   app.use(cors({
-    origin: config.SECURITY.ALLOWED_ORIGINS,
+    origin: (origin, callback) => {
+      console.log(`🌐 CORS request from origin: ${origin || 'no-origin'}`);
+      
+      // Allow requests with no origin (mobile apps, curl, postman)
+      if (!origin) {
+        console.log('✅ Allowing request with no origin');
+        return callback(null, true);
+      }
+      
+      // Check if origin is allowed
+      const isAllowed = config.SECURITY.ALLOWED_ORIGINS.some(allowedOrigin => {
+        if (allowedOrigin.includes('*')) {
+          // Handle wildcard patterns like https://*.railway.app
+          const pattern = allowedOrigin.replace('*', '.*');
+          const regex = new RegExp(`^${pattern}$`);
+          return regex.test(origin);
+        }
+        return origin === allowedOrigin;
+      });
+      
+      if (isAllowed) {
+        console.log(`✅ CORS origin allowed: ${origin}`);
+        callback(null, true);
+      } else {
+        console.log(`❌ CORS origin blocked: ${origin}`);
+        console.log(`📝 Allowed origins: ${config.SECURITY.ALLOWED_ORIGINS.join(', ')}`);
+        callback(new Error('Not allowed by CORS'), false);
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   }));
+
+  // Request logging middleware
+  app.use((req, res, next) => {
+    const start = Date.now();
+    console.log(`📡 ${req.method} ${req.url} - ${req.get('origin') || 'no-origin'}`);
+    
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      console.log(`📡 ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+    });
+    
+    next();
+  });
 
   // Body parsing
   app.use(express.json({ limit: '10mb' }));
@@ -281,12 +322,28 @@ try {
 ║   📊 Status:  http://${config.SERVER.HOST}:${config.SERVER.PORT}/status                  ║
 ║   🔎 Search:  GET /api/search?q=paracetamol                ║
 ║   💬 Chat:    POST /api/chat {"message":"Hello"}           ║
+╠════════════════════════════════════════════════════════════╣
+║   🌐 Frontend: https://mns-chatbot-production.up.railway.app ║
+║   🔗 API Base: Use Railway assigned domain for API calls  ║
 ╚════════════════════════════════════════════════════════════╝
 
 🎉 Enterprise AI Pharmacy Chatbot is ready!
 🧪 Test with: curl http://${config.SERVER.HOST}:${config.SERVER.PORT}/health
+📋 CORS enabled for: ${config.SECURITY.ALLOWED_ORIGINS.join(', ')}
     `);
   });
+
+  // Handle graceful shutdown
+  const shutdown = (signal) => {
+    console.log(`\n🛑 Received ${signal}. Shutting down gracefully...`);
+    server.close(() => {
+      console.log('✅ HTTP server closed.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 
   server.on('error', (err) => {
     console.error('❌ Server error:', err);
