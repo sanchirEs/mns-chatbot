@@ -22,6 +22,13 @@ NODE_ENV=production
 
 **Frontend API Base URL**: Use your Railway assigned domain (check Railway dashboard)
 
+## Supported Frontend Origins
+
+The backend now supports requests from:
+- **Development**: `http://localhost:8100` 
+- **Production**: `https://order.monostrade.mn`
+- **Railway**: `https://mns-chatbot-production.up.railway.app`
+
 ## Testing Your Deployment
 
 Run the test script to verify everything works:

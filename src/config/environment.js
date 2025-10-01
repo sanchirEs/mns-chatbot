@@ -50,9 +50,12 @@ export const config = {
       'http://localhost:3000',
       'http://localhost:5173', 
       'http://localhost:8080',
+      'http://localhost:8100',
       'https://mns-chatbot-production.up.railway.app',
       'https://*.up.railway.app',
-      'https://*.railway.app'
+      'https://*.railway.app',
+      'https://order.monostrade.mn',
+      'http://order.monostrade.mn'
     ]
   },
 
