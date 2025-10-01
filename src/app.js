@@ -11,6 +11,7 @@ try {
   const { supabase } = await import('./config/database.js');
   const { config, validateConfig } = await import('./config/environment.js');
   const { securityHeaders } = await import('./middleware/authentication.js');
+  const FAQService = (await import('./services/faqService.js')).default;
 
   console.log('✅ All modules imported successfully');
 
@@ -127,8 +128,10 @@ try {
     }
   });
 
-  // Chat endpoint
+  // Chat endpoint with FAQ integration
   app.post('/api/chat', async (req, res) => {
+    const startTime = Date.now();
+    
     try {
       const { message } = req.body;
 
@@ -140,50 +143,80 @@ try {
         return res.status(400).json({ error: 'Message too long' });
       }
 
-      // Get relevant context from database
-      let context = '';
-      try {
-        const { data } = await supabase
-          .from('items')
-          .select('name, description, price, stock_quantity')
-          .eq('is_active', true)
-          .limit(5);
+      // **STEP 1: Check FAQ with enhanced detection**
+      console.log('🔍 Simple chat checking FAQ for:', message);
+      const faqResult = FAQService.searchFAQ(message);
+      
+      // Handle direct FAQ match
+      if (faqResult.found) {
+        console.log(`✅ FAQ match found (confidence: ${faqResult.confidence}):`, faqResult.category);
         
-        if (data && data.length > 0) {
-          context = `Available items: ${data.map(item => 
-            `${item.name} ($${item.price}, ${item.stock_quantity} in stock)`
-          ).join(', ')}`;
-        }
-      } catch (dbError) {
-        console.warn('Could not fetch context from database:', dbError.message);
+        return res.json({
+          reply: faqResult.answer,
+          metadata: {
+            source: 'faq',
+            category: faqResult.category,
+            confidence: faqResult.confidence,
+            matchType: faqResult.matchType,
+            responseTime: Date.now() - startTime
+          },
+          timestamp: new Date().toISOString()
+        });
       }
 
-      // Create AI response
-      const systemPrompt = `You are a helpful pharmacy assistant. ${context ? `Context: ${context}` : ''}
+      // Handle forbidden topics
+      if (faqResult.reason === 'forbidden_topic') {
+        console.log(`🚨 Forbidden topic in simple chat (${faqResult.topicType}):`, faqResult.blockReason);
+        const fallbackResponse = FAQService.generateFallbackResponse(message, 'mn');
+        
+        return res.json({
+          reply: fallbackResponse,
+          metadata: {
+            source: 'forbidden_topic_blocked',
+            topicType: faqResult.topicType,
+            blockReason: faqResult.blockReason,
+            responseTime: Date.now() - startTime
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
 
-Guidelines:
-- Be friendly and professional
-- Help users find medications and health products
-- Provide accurate information about products
-- Ask clarifying questions when needed
-- Always verify prescription requirements
-- Suggest consulting healthcare professionals for medical advice`;
+      // Handle low confidence / no reliable match
+      if (faqResult.reason === 'confidence_too_low' || faqResult.reason === 'no_match') {
+        console.log(`🤖 Using restricted AI in simple chat - ${faqResult.reason} (confidence: ${faqResult.confidence || 0})`);
+      }
+
+      // **STEP 2: Use restricted AI for questions not in FAQ**
+      const systemPrompt = `You are a customer support chatbot for Monos Trade LLC.
+
+**CRITICAL RESTRICTIONS:**
+- You can ONLY answer questions using the provided knowledge base about Monos Trade LLC
+- If asked about medical advice, say: "Энэ талаар зөвхөн эмчид хандахыг зөвлөж байна."
+- For other questions outside scope, say: "Харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688"
+- Never provide medical advice or drug recommendations
+- Only provide official company information
+
+**Company Info:**
+- Phone: +976 7766 6688
+- Email: info@monostrade.mn
+- Partnership: saranchimeg@monostrade.mn, +976 9924 2297`;
 
       const { response, metadata } = await OpenAIService.createChatCompletion([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: message }
       ], {
         model: config.AI.MODEL,
-        temperature: config.AI.TEMPERATURE,
-        maxTokens: config.AI.MAX_TOKENS
+        temperature: 0.3, // Lower temperature for more consistent responses
+        maxTokens: 150 // Shorter responses
       });
 
       res.json({
         reply: response.choices[0].message.content,
         metadata: {
+          source: 'ai_restricted',
           model: metadata.model,
           tokensUsed: metadata.tokensUsed,
-          responseTime: metadata.responseTime
+          responseTime: Date.now() - startTime
         },
         timestamp: new Date().toISOString()
       });

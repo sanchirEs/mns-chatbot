@@ -4,6 +4,7 @@ import { ConversationService } from '../services/conversationService.js';
 import { SearchService } from '../services/searchService.js';
 import { FunctionExecutor } from '../utils/functionExecutor.js';
 import { functionDefinitions, getAvailableFunctions } from '../utils/functionDefinitions.js';
+import FAQService from '../services/faqService.js';
 
 /**
  * Enterprise Chat Controller
@@ -33,63 +34,51 @@ function buildProductContext(items, query) {
 }
 
 /**
- * Build comprehensive system prompt with context and guidelines
+ * Build comprehensive system prompt with FAQ restrictions
  */
 function buildSystemPrompt(productContext, userProfile = null) {
-  const basePrompt = `You are an intelligent and professional AI pharmacy assistant helping customers with their healthcare and medication needs.
+  const basePrompt = `You are a customer support chatbot for Monos Trade LLC, a pharmaceutical distribution company in Mongolia.
 
-**Your Primary Capabilities:**
-- Search for medications, vitamins, supplements, and healthcare products
-- Check product availability and stock levels
-- Help customers place orders safely and efficiently
-- Provide medication information and dosage guidance
-- Check for potential drug interactions
-- Suggest alternatives and recommendations
-- Track order status and history
-- Schedule pharmacist consultations
-- Set medication reminders
+**CRITICAL RESTRICTIONS:**
+- You can ONLY answer questions using the provided FAQ knowledge base
+- If a user asks about medical advice, prescriptions, diagnosis, or treatment recommendations, politely refuse and say: "Энэ талаар зөвхөн эмчид хандахыг зөвлөж байна." (We recommend consulting a doctor)
+- If a question does NOT match the FAQ dataset and is outside company scope, respond with: "Харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688" (Please contact customer service: +976 7766 6688)
+- Never invent phone numbers, emails, or addresses - only use the official contact information provided
+- Do not provide medical advice, drug recommendations, or health consultations
+- Do not answer questions about competitors, other companies, or unrelated topics
 
-**Professional Guidelines:**
-- Always prioritize patient safety and accuracy
-- Ask clarifying questions when medical information is unclear
-- Never diagnose medical conditions - refer to healthcare professionals
-- Verify prescription requirements and provide appropriate warnings
-- Be empathetic and understanding of health concerns
-- Suggest consulting pharmacists or doctors for complex medical questions
-- Respect patient privacy and confidentiality
+**ALLOWED TOPICS (FAQ Categories):**
+- Contact information (phone, email, addresses)
+- Company information and background
+- Warehouse and logistics information
+- Partnership and business collaboration
+- Product safety reporting (adverse reactions)
+- Company vision and mission
 
-**Communication Style:**
-- Be friendly, professional, and reassuring
-- Use clear, easy-to-understand language
-- Provide specific, actionable information
-- Ask follow-up questions to better understand needs
-- Offer step-by-step guidance for complex processes
+**OFFICIAL CONTACT INFORMATION:**
+- Main Phone: +976 7766 6688
+- Main Email: info@monostrade.mn
+- Office: Монгол Улс, Улаанбаатар хот, Баянгол дүүрэг, 3-р хороо, Дунд гол гудамж, Монгол 99 төв, 7 давхар, 706 тоот
+- Warehouse: Монгол Улс, Улаанбаатар хот, Баянгол дүүрэг, 20-р хороо, үйлдвэрийн баруун бүс, 44/17
+- Partnership: saranchimeg@monostrade.mn, bdm1@monostrade.mn, +976 9924 2297, +976 8800 7742
+- Safety Reports: registration@monostrade.mn
 
-**Safety Protocols:**
-- Always verify prescription medication requirements
-- Warn about potential drug interactions
-- Suggest consulting healthcare professionals for serious conditions
-- Never recommend exceeding dosages or bypassing medical advice
-- Flag emergency situations and recommend immediate medical attention
+**Response Guidelines:**
+- Be professional and helpful within the allowed scope
+- Use both English and Mongolian as appropriate
+- Provide exact information from the FAQ database
+- For medical questions: redirect to healthcare professionals
+- For out-of-scope questions: redirect to customer service
+- Always maintain a respectful and professional tone
 
 **Current Product Information:**
 ${productContext}
 
-**Important Notes:**
-- Only recommend products that are currently in stock
-- Always use the available functions to get real-time information
-- Verify all medical information through appropriate functions
-- For prescription items, ensure proper verification processes
-- Maintain conversation context to provide personalized assistance
-
-**Emergency Protocol:**
-If someone mentions serious symptoms, allergic reactions, or emergency situations, immediately recommend contacting emergency services or visiting an emergency room.`;
+**REMEMBER:** You are strictly limited to FAQ information only. Do not engage in open-ended conversations or provide information not explicitly covered in the FAQ database.`;
 
   if (userProfile) {
     return basePrompt + `\n\n**User Context:**
-- Previous orders: ${userProfile.totalOrders || 0}
-- Account type: ${userProfile.isAnonymous ? 'Guest' : 'Registered'}
-- Preferences: ${JSON.stringify(userProfile.preferences || {})}`;
+- Account type: ${userProfile.isAnonymous ? 'Guest' : 'Registered'}`;
   }
 
   return basePrompt;
@@ -118,6 +107,81 @@ export async function handleChat(req, res) {
       isAnonymous,
       ...metadata
     };
+
+    // **STEP 1: Check FAQ first with enhanced forbidden topic detection**
+    console.log('🔍 Checking FAQ for message:', message);
+    const faqResult = FAQService.searchFAQ(message);
+    
+    // Handle FAQ match found
+    if (faqResult.found) {
+      console.log(`✅ FAQ match found (confidence: ${faqResult.confidence}):`, faqResult.category);
+      
+      const conversation = await ConversationService.getOrCreate(userId, actualSessionId, enrichedMetadata);
+      await ConversationService.addMessage(conversation.id, 'user', message, {
+        responseTime: Date.now() - startTime,
+        source: 'faq_query'
+      });
+      await ConversationService.addMessage(conversation.id, 'assistant', faqResult.answer, {
+        source: 'faq',
+        category: faqResult.category,
+        confidence: faqResult.confidence,
+        matchType: faqResult.matchType
+      });
+
+      return res.json({
+        reply: faqResult.answer,
+        conversationId: conversation.id,
+        sessionId: actualSessionId,
+        metadata: {
+          responseTime: Date.now() - startTime,
+          source: 'faq',
+          category: faqResult.category,
+          confidence: faqResult.confidence,
+          matchType: faqResult.matchType
+        },
+        suggestions: generateFAQSuggestions(faqResult.category),
+        warnings: []
+      });
+    }
+
+    // Handle forbidden topics (medical advice, politics, etc.)
+    if (faqResult.reason === 'forbidden_topic') {
+      console.log(`🚨 Forbidden topic detected (${faqResult.topicType}):`, faqResult.blockReason);
+      const fallbackResponse = FAQService.generateFallbackResponse(message, 'mn');
+      
+      const conversation = await ConversationService.getOrCreate(userId, actualSessionId, enrichedMetadata);
+      await ConversationService.addMessage(conversation.id, 'user', message);
+      await ConversationService.addMessage(conversation.id, 'assistant', fallbackResponse, {
+        source: 'forbidden_topic_blocked',
+        topicType: faqResult.topicType,
+        blockReason: faqResult.blockReason
+      });
+
+      const suggestions = faqResult.topicType === 'medical_advice' 
+        ? ['Эмчид хандах', 'Эрүүл мэндийн мэргэжилтэн']
+        : ['Харилцагчийн үйлчилгээ: +976 7766 6688'];
+
+      return res.json({
+        reply: fallbackResponse,
+        conversationId: conversation.id,
+        sessionId: actualSessionId,
+        metadata: {
+          responseTime: Date.now() - startTime,
+          source: 'forbidden_topic_blocked',
+          topicType: faqResult.topicType,
+          blockReason: faqResult.blockReason
+        },
+        suggestions,
+        warnings: [`Forbidden topic blocked: ${faqResult.topicType}`]
+      });
+    }
+
+    // Handle low confidence / no match
+    if (faqResult.reason === 'confidence_too_low' || faqResult.reason === 'no_match') {
+      console.log(`🤖 Using restricted AI - ${faqResult.reason} (confidence: ${faqResult.confidence || 0})`);
+      if (faqResult.suggestedMatch) {
+        console.log(`💡 Low confidence match available: ${faqResult.suggestedMatch.category} (${faqResult.suggestedMatch.confidence})`);
+      }
 
     // Get or create conversation with context
     const conversation = await ConversationService.getOrCreate(userId, actualSessionId, enrichedMetadata);
@@ -622,6 +686,32 @@ export async function getUserConversations(req, res) {
       code: 'CONVERSATIONS_ERROR'
     });
   }
+}
+
+/**
+ * Generate FAQ-specific suggestions based on category
+ */
+function generateFAQSuggestions(category) {
+  const suggestionMap = {
+    'Contact': ['Office address', 'Partnership contact', 'Email address'],
+    'Холбоо барих': ['Оффисын хаяг', 'Хамтын ажиллагаа', 'И-мэйл хаяг'],
+    'Warehouse': ['Office address', 'Partnership contact', 'Company info'],
+    'Агуулах': ['Оффисын хаяг', 'Хамтын ажиллагаа', 'Компанийн мэдээлэл'],
+    'About': ['Company vision', 'Partnership contact', 'Contact info'],
+    'Бидний тухай': ['Компанийн алсын хараа', 'Хамтын ажиллагаа', 'Холбогдох мэдээлэл'],
+    'Vision': ['Company info', 'Partnership contact', 'Warehouse info'],
+    'Алсын хараа': ['Компанийн мэдээлэл', 'Хамтын ажиллагаа', 'Агуулахын мэдээлэл'],
+    'Partnership': ['Contact info', 'Company info', 'Warehouse address'],
+    'Хамтын ажиллагаа': ['Холбогдох мэдээлэл', 'Компанийн мэдээлэл', 'Агуулахын хаяг'],
+    'Safety': ['Contact info', 'Partnership contact', 'Company info'],
+    'Аюулгүй байдал': ['Холбогдох мэдээлэл', 'Хамтын ажиллагаа', 'Компанийн мэдээлэл']
+  };
+
+  return suggestionMap[category] || [
+    'Contact information',
+    'Company information',
+    'Partnership opportunities'
+  ];
 }
 
 /**
