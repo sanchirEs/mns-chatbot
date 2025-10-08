@@ -211,6 +211,99 @@ export class SearchService {
   }
 
   /**
+   * Enhanced search with business data integration
+   */
+  static async searchProductsWithBusinessData(query, options = {}) {
+    const {
+      includeStock = true,
+      includePricing = true,
+      realTimeStock = false,
+      businessDataOnly = false
+    } = options;
+
+    console.log(`🔍 Searching products with business data: "${query}"`);
+
+    try {
+      // Use existing semantic search
+      const results = await this.semanticSearch(query, options);
+      
+      // Enhance results with business data
+      const enhancedResults = results.map(product => {
+        const enhanced = { ...product };
+        
+        // Add business data if available
+        if (product.business_data) {
+          enhanced.business_info = {
+            seller_id: product.business_data.seller_id,
+            bind_id: product.business_data.bind_id,
+            facility_name: product.business_data.facility_name,
+            promise_quantity: product.business_data.promise_quantity,
+            last_stock_sync: product.business_data.last_stock_sync
+          };
+        }
+
+        // Add stock status
+        if (includeStock) {
+          enhanced.stock_status = this.getStockStatus(product.stock_quantity);
+          enhanced.availability = {
+            in_stock: product.stock_quantity > 0,
+            low_stock: product.stock_quantity > 0 && product.stock_quantity < 10,
+            out_of_stock: product.stock_quantity === 0
+          };
+        }
+
+        // Add pricing info
+        if (includePricing && product.price) {
+          enhanced.pricing = {
+            base_price: product.price,
+            formatted_price: `₮${product.price.toLocaleString()}`,
+            currency: 'MNT'
+          };
+        }
+
+        return enhanced;
+      });
+
+      // If real-time stock is requested, fetch from business API
+      if (realTimeStock) {
+        console.log('🔄 Fetching real-time stock data...');
+        for (const product of enhancedResults) {
+          try {
+            // Import DataSyncService dynamically to avoid circular imports
+            const { DataSyncService } = await import('./dataSyncService.js');
+            const stockData = await DataSyncService.fetchProductStock(product.id);
+            
+            if (stockData) {
+              product.stock_quantity = stockData.available;
+              product.real_time_stock = true;
+              product.stock_updated = new Date().toISOString();
+            }
+          } catch (error) {
+            console.warn(`Failed to get real-time stock for ${product.id}:`, error.message);
+          }
+        }
+      }
+
+      console.log(`✅ Found ${enhancedResults.length} products with business data`);
+      return enhancedResults;
+
+    } catch (error) {
+      console.error('Error in searchProductsWithBusinessData:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get stock status description
+   */
+  static getStockStatus(quantity) {
+    if (quantity === 0) return 'out_of_stock';
+    if (quantity < 5) return 'low_stock';
+    if (quantity < 20) return 'limited_stock';
+    return 'in_stock';
+  }
+
+  /**
    * Symptom-based product recommendations
    */
   static async symptomBasedSearch(query, options = {}) {
@@ -260,12 +353,25 @@ export class SearchService {
    */
   static async getItemById(itemId) {
     try {
-      const { data, error } = await supabase
-        .from('items')
+      // Try new products_with_inventory view first
+      let { data, error } = await supabase
+        .from('products_with_inventory')
         .select('*')
         .eq('id', itemId)
-        .eq('is_active', true)
+        .eq('inventory_active', true)
         .single();
+      
+      // Fallback to old items table if new table doesn't exist
+      if (error && error.code === '42P01') {
+        const fallback = await supabase
+          .from('items')
+          .select('*')
+          .eq('id', itemId)
+          .eq('is_active', true)
+          .single();
+        data = fallback.data;
+        error = fallback.error;
+      }
 
       if (error) throw error;
 
@@ -377,13 +483,29 @@ export class SearchService {
     const { limit = 5, category = null } = options;
 
     try {
+      // Try new products_in_stock view first
       let query = supabase
-        .from('items')
+        .from('products_in_stock')
         .select('*')
-        .eq('is_active', true)
-        .gt('stock_quantity', 0)
-        .order('stock_quantity', { ascending: false }) // High stock = popular
+        .order('available', { ascending: false }) // High stock = popular
         .limit(limit);
+      
+      // Fallback to old items table if new view doesn't exist
+      let { data, error } = await query;
+      if (error && error.code === '42P01') {
+        query = supabase
+          .from('items')
+          .select('*')
+          .eq('is_active', true)
+          .gt('stock_quantity', 0)
+          .order('stock_quantity', { ascending: false })
+          .limit(limit);
+        const fallback = await query;
+        data = fallback.data;
+        error = fallback.error;
+      } else {
+        // Continue with original query result
+      }
 
       if (category) {
         query = query.eq('category', category);

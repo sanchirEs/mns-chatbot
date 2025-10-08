@@ -29,6 +29,17 @@ export const config = {
     MAX_CONNECTIONS: 20
   },
 
+  // Redis Configuration (TIER 2 Caching)
+  REDIS: {
+    HOST: process.env.REDIS_HOST || 'localhost',
+    PORT: parseInt(process.env.REDIS_PORT) || 6379,
+    PASSWORD: process.env.REDIS_PASSWORD || undefined,
+    DB: parseInt(process.env.REDIS_DB) || 0,
+    KEY_PREFIX: process.env.REDIS_KEY_PREFIX || 'chatbot:',
+    CACHE_TTL: parseInt(process.env.REDIS_CACHE_TTL) || 300, // 5 minutes
+    ENABLE_REDIS: process.env.ENABLE_REDIS === 'true'  // Changed: disabled by default
+  },
+
   // OpenAI Configuration
   AI: {
     API_KEY: process.env.OPENAI_API_KEY,
@@ -107,6 +118,33 @@ export const config = {
     ENABLE_METRICS: process.env.ENABLE_METRICS === 'true',
     METRICS_PORT: parseInt(process.env.METRICS_PORT) || 9090,
     HEALTH_CHECK_INTERVAL: parseInt(process.env.HEALTH_CHECK_INTERVAL) || 30000
+  },
+
+  // Sync Configuration (Three-Tier Architecture)
+  SYNC: {
+    // Business API
+    BUSINESS_API_BASE: process.env.BUSINESS_API_BASE || 'http://mns.bmall.mn/api',
+    BUSINESS_API_TIMEOUT: parseInt(process.env.BUSINESS_API_TIMEOUT) || 10000,
+    
+    // Full sync settings
+    FULL_SYNC_BATCH_SIZE: parseInt(process.env.FULL_SYNC_BATCH_SIZE) || 100,
+    FULL_SYNC_MAX_PRODUCTS: parseInt(process.env.FULL_SYNC_MAX_PRODUCTS) || null,
+    FULL_SYNC_SCHEDULE: process.env.FULL_SYNC_SCHEDULE || '0 2 * * *', // 2 AM daily
+    
+    // Quick sync settings
+    QUICK_SYNC_MAX_PRODUCTS: parseInt(process.env.QUICK_SYNC_MAX_PRODUCTS) || 200,
+    QUICK_SYNC_SCHEDULE: process.env.QUICK_SYNC_SCHEDULE || '*/5 * * * *', // Every 5 min
+    
+    // Embedding settings
+    GENERATE_EMBEDDINGS: process.env.GENERATE_EMBEDDINGS !== 'false',
+    EMBEDDING_BATCH_DELAY: parseInt(process.env.EMBEDDING_BATCH_DELAY) || 50,
+    
+    // Rate limiting
+    API_RATE_LIMIT_DELAY: parseInt(process.env.API_RATE_LIMIT_DELAY) || 200,
+    
+    // Enable/disable scheduler
+    ENABLE_SCHEDULER: process.env.ENABLE_SCHEDULER !== 'false',
+    TIMEZONE: process.env.TIMEZONE || 'Asia/Ulaanbaatar'
   }
 };
 

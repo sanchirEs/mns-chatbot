@@ -15,7 +15,16 @@
     "db:migrate": "node scripts/migrate.js",
     "db:seed": "node scripts/seed.js",
     "health-check": "node scripts/health-check.js",
-    "cleanup": "node scripts/cleanup.js"
+    "cleanup": "node scripts/cleanup.js",
+    "sync:products": "node scripts/sync-products.js",
+    "sync:test": "node scripts/test-sync.js",
+    "sync:status": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.getSyncStatus()).then(console.log)\"",
+    "migrate": "node scripts/migrate-to-three-tier.js",
+    "sync:full": "node scripts/sync-products.js --max-products=1000",
+    "sync:quick": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.quickStockSync())\"",
+    "cache:clear": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.clearAllCaches())\"",
+    "embeddings:generate": "node scripts/generate-embeddings.js",
+    "embeddings:all": "node scripts/generate-embeddings.js --all"
   },
   "keywords": [
     "ai",
@@ -39,7 +48,9 @@
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
+    "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.3",
     "openai": "^4.20.0",
     "uuid": "^9.0.1",
     "validator": "^13.11.0"

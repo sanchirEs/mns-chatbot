@@ -12,6 +12,9 @@ try {
   const { config, validateConfig } = await import('./config/environment.js');
   const { securityHeaders } = await import('./middleware/authentication.js');
   const FAQService = (await import('./services/faqService.js')).default;
+  const { DataSyncService } = await import('./services/dataSyncService.js');
+  const { ProductSearchService } = await import('./services/productSearchService.js');
+  const { SyncScheduler } = await import('./jobs/syncScheduler.js');
 
   console.log('✅ All modules imported successfully');
 
@@ -139,29 +142,36 @@ try {
     }
   });
 
-  // Simple search endpoint
+  // Enhanced search endpoint with three-tier architecture
   app.get('/api/search', async (req, res) => {
+    const startTime = Date.now();
+    
     try {
-      const { q, limit = 5 } = req.query;
+      const { q, limit = 5, category, realtime } = req.query;
       
       if (!q) {
         return res.status(400).json({ error: 'Query parameter "q" is required' });
       }
 
-      // Simple database search
-      const { data, error } = await supabase
-        .from('items')
-        .select('id, name, description, price, stock_quantity, category')
-        .or(`name.ilike.%${q}%,description.ilike.%${q}%`)
-        .eq('is_active', true)
-        .limit(parseInt(limit));
+      // Use new ProductSearchService
+      const searchResults = await ProductSearchService.search(q, {
+        limit: parseInt(limit),
+        category: category || null,
+        realTimeStock: realtime === 'true',
+        threshold: 0.5,  // Lower threshold for better recall
+        includeInactive: true  // Include all products
+      });
 
-      if (error) throw error;
+      const responseTime = Date.now() - startTime;
 
       res.json({
         query: q,
-        results: data || [],
-        total: (data || []).length
+        results: searchResults.products.map(p => ProductSearchService.formatProduct(p)),
+        total: searchResults.products.length,
+        metadata: {
+          ...searchResults.metadata,
+          responseTime
+        }
       });
     } catch (error) {
       console.error('Search error:', error);
@@ -351,6 +361,136 @@ try {
       console.error(`Port ${config.SERVER.PORT} is already in use`);
     }
   });
+
+  // ==================== THREE-TIER ARCHITECTURE SETUP ====================
+  
+  console.log('\n🏗️ Initializing Three-Tier Architecture...');
+  console.log('   TIER 1: Vector DB (static catalog)');
+  console.log('   TIER 2: Redis Cache (hot data - 5 min TTL)');
+  console.log('   TIER 3: Real-time API (on-demand)');
+
+  // Initialize Redis connection
+  try {
+    await DataSyncService.initializeRedis();
+    console.log('✅ Redis initialized');
+  } catch (error) {
+    console.warn('⚠️ Redis unavailable - using database fallback');
+  }
+
+  // Start sync scheduler (production mode)
+  if (config.SYNC.ENABLE_SCHEDULER && config.SERVER.IS_PRODUCTION) {
+    try {
+      SyncScheduler.start();
+      console.log('✅ Sync scheduler started');
+    } catch (error) {
+      console.error('❌ Failed to start scheduler:', error.message);
+    }
+  } else {
+    console.log('ℹ️ Scheduler disabled (development mode)');
+  }
+
+  // ==================== ADMIN ENDPOINTS ====================
+  
+  // Admin: Sync status
+  app.get('/api/admin/sync-status', async (req, res) => {
+    try {
+      const status = await DataSyncService.getSyncStatus();
+      const schedulerStatus = SyncScheduler.getStatus();
+      const cacheStats = await ProductSearchService.getCacheStats();
+
+      res.json({
+        success: true,
+        sync: status,
+        scheduler: schedulerStatus,
+        cache: cacheStats,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Failed to get sync status:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Admin: Manual sync trigger
+  app.post('/api/admin/sync', async (req, res) => {
+    try {
+      const { type = 'stock', options = {} } = req.body;
+      
+      console.log(`🔄 Manual ${type} sync requested...`);
+      const result = await SyncScheduler.runManualSync(type, options);
+      
+      res.json({
+        success: true,
+        message: `${type} sync completed`,
+        result
+      });
+    } catch (error) {
+      console.error('Manual sync failed:', error);
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Admin: Clear cache
+  app.post('/api/admin/cache/clear', async (req, res) => {
+    try {
+      await DataSyncService.clearAllCaches();
+      await ProductSearchService.clearSearchCache();
+      
+      res.json({
+        success: true,
+        message: 'All caches cleared'
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  // Admin: Scheduler control
+  app.post('/api/admin/scheduler/:action', async (req, res) => {
+    try {
+      const { action } = req.params;
+      
+      if (action === 'start') {
+        SyncScheduler.start();
+      } else if (action === 'stop') {
+        SyncScheduler.stop();
+      } else if (action === 'restart') {
+        SyncScheduler.stop();
+        SyncScheduler.start();
+      } else {
+        return res.status(400).json({
+          error: 'Invalid action',
+          validActions: ['start', 'stop', 'restart']
+        });
+      }
+      
+      res.json({
+        success: true,
+        action,
+        status: SyncScheduler.getStatus()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+  });
+
+  console.log('✅ Admin endpoints configured:');
+  console.log('   GET  /api/admin/sync-status');
+  console.log('   POST /api/admin/sync');
+  console.log('   POST /api/admin/cache/clear');
+  console.log('   POST /api/admin/scheduler/:action');
 
 } catch (error) {
   console.error('❌ Failed to start enterprise app:', error);
