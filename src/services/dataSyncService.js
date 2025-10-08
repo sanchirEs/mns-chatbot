@@ -204,12 +204,19 @@ export class DataSyncService {
   // ================================================================
 
   /**
-   * Fetch all products from business API
+   * Fetch all products from business API (Production: supports 7000+ products)
    */
   static async fetchAllProducts(options = {}) {
-    const { maxProducts = null, pageSize = 50 } = options;
+    const { 
+      maxProducts = config.SYNC?.MAX_PRODUCTS_PER_RUN || 7000, 
+      pageSize = config.SYNC?.PAGE_SIZE || 50,
+      maxPages = config.SYNC?.MAX_PAGES || 150
+    } = options;
     const allProducts = [];
     let page = 0;
+    
+    console.log(`📦 Starting product fetch: up to ${maxProducts} products (${maxPages} pages max)`);
+    console.log(`   API: ${this.BUSINESS_API_BASE}/products`);
     
       while (true) {
       try {
@@ -412,8 +419,21 @@ export class DataSyncService {
 
   /**
    * Update only inventory table (quick sync)
+   * Only updates if product exists in products table
    */
   static async updateInventoryOnly(product) {
+    // First check if product exists in products table
+    const { data: productExists, error: checkError } = await supabase
+      .from('products')
+      .select('id')
+      .eq('id', product.PRODUCT_ID)
+      .single();
+    
+    if (checkError || !productExists) {
+      // Product doesn't exist, skip inventory update
+      return { skipped: true, reason: 'product_not_found' };
+    }
+    
     const inventory = this.transformInventory(product);
     
     const { error } = await supabase
@@ -421,6 +441,7 @@ export class DataSyncService {
       .upsert(inventory, { onConflict: 'product_id' });
 
     if (error) throw error;
+    return { updated: true };
   }
 
   // ================================================================
@@ -431,13 +452,18 @@ export class DataSyncService {
    * Cache product inventory in Redis (5 min TTL)
    */
   static async cacheProductInventory(product) {
+    // Check if Redis is available
+    if (!this.redis) {
+      return; // Silently skip if Redis not configured
+    }
+    
     if (!this.redisConnected) {
       await this.initializeRedis();
     }
 
     if (!this.redisConnected) {
-      // Use database fallback
-      return await this.cacheToDB(product);
+      // Silently skip Redis caching (database is source of truth)
+      return;
     }
 
     try {
@@ -470,8 +496,9 @@ export class DataSyncService {
    * Get product from Redis cache
    */
   static async getFromCache(productId) {
-    if (!this.redisConnected) {
-      return await this.getFromDBCache(productId);
+    // Check if Redis is available
+    if (!this.redis || !this.redisConnected) {
+      return null; // Return null, let caller use database
     }
 
     try {
