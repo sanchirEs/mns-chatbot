@@ -31,13 +31,14 @@ export const config = {
 
   // Redis Configuration (TIER 2 Caching)
   REDIS: {
+    URL: process.env.REDIS_URL || null, // Railway provides this
     HOST: process.env.REDIS_HOST || 'localhost',
     PORT: parseInt(process.env.REDIS_PORT) || 6379,
     PASSWORD: process.env.REDIS_PASSWORD || undefined,
     DB: parseInt(process.env.REDIS_DB) || 0,
     KEY_PREFIX: process.env.REDIS_KEY_PREFIX || 'chatbot:',
     CACHE_TTL: parseInt(process.env.REDIS_CACHE_TTL) || 300, // 5 minutes
-    ENABLE_REDIS: process.env.ENABLE_REDIS === 'true'  // Changed: disabled by default
+    ENABLE_REDIS: process.env.ENABLE_REDIS === 'true' || !!process.env.REDIS_URL  // Auto-enable if REDIS_URL exists
   },
 
   // OpenAI Configuration

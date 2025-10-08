@@ -13,18 +13,25 @@ export class DataSyncService {
   static BUSINESS_API_BASE = 'http://mns.bmall.mn/api';
   
   // Redis client initialization (only if enabled)
-  static redis = config.REDIS?.ENABLE_REDIS ? new Redis({
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    retryStrategy: (times) => {
-      const delay = Math.min(times * 50, 2000);
-      return delay;
-    },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
-    lazyConnect: true
-  }) : null;
+  static redis = config.REDIS?.ENABLE_REDIS ? (
+    // Use REDIS_URL if provided (Railway format), otherwise use individual params
+    process.env.REDIS_URL 
+      ? new Redis(process.env.REDIS_URL, {
+          retryStrategy: (times) => Math.min(times * 50, 2000),
+          maxRetriesPerRequest: 3,
+          enableReadyCheck: true,
+          lazyConnect: true
+        })
+      : new Redis({
+          host: process.env.REDIS_HOST || 'localhost',
+          port: parseInt(process.env.REDIS_PORT) || 6379,
+          password: process.env.REDIS_PASSWORD || undefined,
+          retryStrategy: (times) => Math.min(times * 50, 2000),
+          maxRetriesPerRequest: 3,
+          enableReadyCheck: true,
+          lazyConnect: true
+        })
+  ) : null;
 
   static redisConnected = false;
 

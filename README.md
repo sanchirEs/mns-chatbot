@@ -158,15 +158,25 @@ scripts/
 
 ## 🚀 Production Deployment
 
+### Quick Deploy to Railway (Recommended)
+```bash
+# 1. Deploy app + Redis in 2 minutes
+See: REDIS-RAILWAY-QUICKSTART.md
+
+# 2. Or follow complete guide
+See: RAILWAY-DEPLOYMENT.md
+```
+
 ### Environment Variables
 ```env
 NODE_ENV=production
 ENABLE_SCHEDULER=true
-REDIS_HOST=your-redis-server  # Optional
+# REDIS_URL is auto-configured by Railway
 ```
 
-### Deployment Platforms
-- Railway, Heroku, Vercel, DigitalOcean supported
+### Other Deployment Platforms
+- Railway (recommended - easiest Redis setup)
+- Heroku, Vercel, DigitalOcean supported
 - See `DEPLOYMENT.md` for platform-specific guides
 
 ### Pre-Launch Checklist

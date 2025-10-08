@@ -24,7 +24,8 @@
     "sync:quick": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.quickStockSync())\"",
     "cache:clear": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.clearAllCaches())\"",
     "embeddings:generate": "node scripts/generate-embeddings.js",
-    "embeddings:all": "node scripts/generate-embeddings.js --all"
+    "embeddings:all": "node scripts/generate-embeddings.js --all",
+    "test:redis": "node test-redis-connection.js"
   },
   "keywords": [
     "ai",
