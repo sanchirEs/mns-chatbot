@@ -98,16 +98,66 @@ try {
 
   console.log('✅ Middleware configured');
 
+  // Initialize Redis if enabled
+  if (config.REDIS.ENABLE_REDIS) {
+    console.log('🔴 Initializing Redis...');
+    try {
+      await DataSyncService.initializeRedis();
+      if (DataSyncService.redisConnected) {
+        console.log('✅ Redis connected and ready');
+        console.log(`   Cache TTL: ${config.REDIS.CACHE_TTL}s`);
+      } else {
+        console.log('⚠️  Redis connection failed - using database fallback');
+      }
+    } catch (error) {
+      console.log('⚠️  Redis initialization error:', error.message);
+      console.log('   Continuing with database fallback...');
+    }
+  } else {
+    console.log('⚠️  Redis is disabled - using database cache only');
+  }
+
   // ==================== ROUTES ====================
 
-  // Health check
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'healthy',
-      version: '1.0.0',
-      timestamp: new Date().toISOString(),
-      environment: config.SERVER.NODE_ENV
-    });
+  // Health check with Redis status
+  app.get('/health', async (req, res) => {
+    try {
+      // Check database
+      const { data: productsCount } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true });
+      
+      // Check Redis
+      let cacheStatus = 'disabled';
+      let cacheKeys = 0;
+      
+      if (config.REDIS.ENABLE_REDIS && DataSyncService.redisConnected) {
+        cacheStatus = 'redis';
+        try {
+          cacheKeys = await DataSyncService.redis.dbsize();
+        } catch (e) {
+          cacheStatus = 'redis_error';
+        }
+      } else if (config.REDIS.ENABLE_REDIS) {
+        cacheStatus = 'database_fallback';
+      }
+      
+      res.json({
+        status: 'healthy',
+        version: '1.0.0',
+        timestamp: new Date().toISOString(),
+        environment: config.SERVER.NODE_ENV,
+        cache: cacheStatus,
+        cacheKeys: cacheKeys,
+        products: productsCount || 0,
+        uptime: `${Math.floor(process.uptime() / 60)} minutes`
+      });
+    } catch (error) {
+      res.status(500).json({
+        status: 'unhealthy',
+        error: error.message
+      });
+    }
   });
 
   // System status

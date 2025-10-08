@@ -25,7 +25,9 @@
     "cache:clear": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.clearAllCaches())\"",
     "embeddings:generate": "node scripts/generate-embeddings.js",
     "embeddings:all": "node scripts/generate-embeddings.js --all",
-    "test:redis": "node test-redis-connection.js"
+    "test:redis": "node test-redis-connection.js",
+    "test:redis:full": "node test-redis-integration.js",
+    "test:complete": "node test-complete-flow.js"
   },
   "keywords": [
     "ai",
