@@ -210,14 +210,14 @@ export async function handleChat(req, res) {
       });
     }
 
-    // Handle low confidence / no match
-    if (faqResult.reason === 'confidence_too_low' || faqResult.reason === 'no_match') {
-      console.log(`🤖 Using restricted AI - ${faqResult.reason} (confidence: ${faqResult.confidence || 0})`);
+    // Handle low confidence / no match OR product queries with no results
+    if (faqResult.reason === 'confidence_too_low' || faqResult.reason === 'no_match' || faqResult.reason === 'products_found_priority') {
+      console.log(`🤖 Using AI with product context - ${faqResult.reason} (confidence: ${faqResult.confidence || 0})`);
       if (faqResult.suggestedMatch) {
         console.log(`💡 Low confidence match available: ${faqResult.suggestedMatch.category} (${faqResult.suggestedMatch.confidence})`);
       }
 
-    // Get or create conversation with context
+      // Get or create conversation with context
     const conversation = await ConversationService.getOrCreate(userId, actualSessionId, enrichedMetadata);
     conversationId = conversation.id;
 
@@ -367,6 +367,7 @@ export async function handleChat(req, res) {
       suggestions: generateFollowUpSuggestions(reply),
       warnings: req.validationWarnings || []
     });
+    }
 
   } catch (error) {
     console.error('Chat error:', error);

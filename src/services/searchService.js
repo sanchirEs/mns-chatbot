@@ -511,10 +511,10 @@ export class SearchService {
         query = query.eq('category', category);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const result = await query;
+      if (result.error) throw result.error;
 
-      return (data || []).map(item => ({
+      return (result.data || []).map(item => ({
         id: item.id,
         name: item.name,
         description: item.description,
