@@ -218,40 +218,59 @@ export class DataSyncService {
     console.log(`📦 Starting product fetch: ${maxProducts ? `up to ${maxProducts}` : 'ALL'} products (max ${maxPages} pages)`);
     console.log(`   API: ${this.BUSINESS_API_BASE}/products`);
     
-      while (true) {
+      while (page < maxPages) {
       try {
-        if (config.LOGGING.LEVEL === 'debug') {
-          console.log(`📄 Fetching page ${page}...`);
+        // Progress logging every 10 pages
+        if (page % 10 === 0) {
+          console.log(`📄 Fetching page ${page}/${maxPages}... (${allProducts.length} products so far)`);
         }
         
         const response = await fetch(
           `${this.BUSINESS_API_BASE}/products?page=${page}&size=${pageSize}&startDate=2025-01-01&endDate=2025-12-31&storeId=MK001`,
-          { timeout: 10000 }
+          { timeout: 15000 }
         );
 
         if (!response.ok) {
-          console.warn(`API request failed for page ${page}: ${response.status}`);
-          break;
+          console.warn(`⚠️  API request failed for page ${page}: ${response.status}`);
+          // Don't break - try next page
+          page++;
+          continue;
         }
 
         const data = await response.json();
-        const items = data.data?.data?.items || [];
+        
+        // Handle different API response formats
+        // Format 1: { data: { data: { items: [...] } } } (old)
+        // Format 2: { data: { items: [...] } } (new)
+        const items = data.data?.data?.items || data.data?.items || data.items || [];
+        const totalPagesFromAPI = data.data?.data?.total_pages || data.data?.total_pages || data.total_pages || 0;
+        const totalItemsFromAPI = data.data?.data?.total_items || data.data?.total_items || data.total_items || 0;
+        
+        // On first page, update maxPages if API provides it
+        if (page === 0 && totalPagesFromAPI > 0) {
+          const actualMaxPages = Math.min(totalPagesFromAPI, 300); // Safety limit
+          console.log(`📊 API reports ${totalItemsFromAPI} items across ${totalPagesFromAPI} pages`);
+          console.log(`   Will fetch up to ${actualMaxPages} pages`);
+        }
         
         if (items.length === 0) {
+          console.log(`✅ No more products on page ${page}, stopping`);
           break;
         }
         
         allProducts.push(...items);
         
-        if (page % 10 === 0 || config.LOGGING.LEVEL === 'debug') {
-          console.log(`Fetched ${allProducts.length} products (page ${page})...`);
-        }
-
         page++;
 
         // Stop if we've reached max products
         if (maxProducts && allProducts.length >= maxProducts) {
-          console.log(`🛑 Reached maxProducts limit: ${maxProducts}`);
+          console.log(`✅ Reached maxProducts limit: ${maxProducts}`);
+          break;
+        }
+        
+        // Stop if we've fetched all pages reported by API
+        if (totalPagesFromAPI > 0 && page >= totalPagesFromAPI) {
+          console.log(`✅ Fetched all ${totalPagesFromAPI} pages`);
           break;
         }
 
@@ -259,10 +278,15 @@ export class DataSyncService {
         await this.sleep(200);
         
       } catch (error) {
-        console.error(`Page ${page} error:`, error.message);
-        break;
+        console.error(`⚠️  Page ${page} error:`, error.message);
+        // Don't break on error - continue to next page
+        page++;
+        if (page >= maxPages - 10) break; // Only stop if near end
       }
     }
+    
+    console.log(`\n✅ Fetch complete: ${page} pages retrieved, ${allProducts.length} products (before dedup)`);
+    
 
     // Deduplicate products by ID (in case of fetch errors/retries)
     const uniqueProducts = [];

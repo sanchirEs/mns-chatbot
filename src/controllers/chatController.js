@@ -39,15 +39,22 @@ function buildProductContext(items, query) {
 function buildSystemPrompt(productContext, userProfile = null) {
   const basePrompt = `You are a customer support chatbot for Monos Trade LLC, a pharmaceutical distribution company in Mongolia.
 
+**PRIMARY FUNCTION - PRODUCT SEARCH:**
+- When users ask about products, medicines, availability, prices, or stock levels, use the provided product information to help them
+- You can search for products, check availability, provide prices, and help with product-related questions
+- Use the product search function to find specific items when needed
+
 **CRITICAL RESTRICTIONS:**
-- You can ONLY answer questions using the provided FAQ knowledge base
-- If a user asks about medical advice, prescriptions, diagnosis, or treatment recommendations, politely refuse and say: "Энэ талаар зөвхөн эмчид хандахыг зөвлөж байна." (We recommend consulting a doctor)
-- If a question does NOT match the FAQ dataset and is outside company scope, respond with: "Харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688" (Please contact customer service: +976 7766 6688)
+- For medical advice, prescriptions, diagnosis, or treatment recommendations, politely refuse and say: "Энэ талаар зөвхөн эмчид хандахыг зөвлөж байна." (We recommend consulting a doctor)
+- For questions outside company scope, respond with: "Харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688" (Please contact customer service: +976 7766 6688)
 - Never invent phone numbers, emails, or addresses - only use the official contact information provided
 - Do not provide medical advice, drug recommendations, or health consultations
 - Do not answer questions about competitors, other companies, or unrelated topics
 
-**ALLOWED TOPICS (FAQ Categories):**
+**ALLOWED TOPICS:**
+- Product search and availability
+- Prices and stock levels
+- Product information and descriptions
 - Contact information (phone, email, addresses)
 - Company information and background
 - Warehouse and logistics information
@@ -108,12 +115,39 @@ export async function handleChat(req, res) {
       ...metadata
     };
 
-    // **STEP 1: Check FAQ first with enhanced forbidden topic detection**
-    console.log('🔍 Checking FAQ for message:', message);
-    const faqResult = FAQService.searchFAQ(message);
+    // **STEP 1: Check if this is a product-related query first**
+    const isProductQuery = isProductRelatedQuery(message);
+    console.log(`🔍 Message analysis: ${isProductQuery ? 'Product query' : 'General query'}:`, message);
     
-    // Handle FAQ match found
-    if (faqResult.found) {
+    let faqResult = null;
+    let productSearchResults = null;
+    
+    if (isProductQuery) {
+      // **STEP 1A: For product queries, do product search FIRST**
+      console.log('🔍 Performing product search for product query...');
+      productSearchResults = await SearchService.intelligentSearch(message, {
+        limit: 8,
+        threshold: 0.6,
+        minStock: 0
+      });
+      
+      console.log(`✅ Product search found ${productSearchResults.length} results`);
+      
+      // If we found products, skip FAQ and go straight to AI with product context
+      if (productSearchResults.length > 0) {
+        console.log('🎯 Products found - skipping FAQ, using AI with product context');
+        faqResult = { found: false, reason: 'products_found_priority' };
+      } else {
+        // No products found, fall back to FAQ
+        faqResult = FAQService.searchFAQ(message);
+      }
+    } else {
+      // **STEP 1B: For non-product queries, check FAQ first**
+      faqResult = FAQService.searchFAQ(message);
+    }
+    
+    // Handle FAQ match found (only for non-product queries or when no products found)
+    if (faqResult.found && !isProductQuery) {
       console.log(`✅ FAQ match found (confidence: ${faqResult.confidence}):`, faqResult.category);
       
       const conversation = await ConversationService.getOrCreate(userId, actualSessionId, enrichedMetadata);
@@ -194,8 +228,8 @@ export async function handleChat(req, res) {
       format: 'content_only'
     });
 
-    // Perform intelligent search for relevant context
-    const relevantProducts = await SearchService.intelligentSearch(message, {
+    // Use already fetched product results or perform new search
+    const relevantProducts = productSearchResults || await SearchService.intelligentSearch(message, {
       limit: 8,
       threshold: 0.6,
       minStock: 0
@@ -712,6 +746,26 @@ function generateFAQSuggestions(category) {
     'Company information',
     'Partnership opportunities'
   ];
+}
+
+/**
+ * Check if message is product-related
+ */
+function isProductRelatedQuery(message) {
+  const productKeywords = [
+    // English
+    'medicine', 'medication', 'drug', 'pill', 'tablet', 'capsule', 'syrup', 'injection',
+    'paracetamol', 'aspirin', 'ibuprofen', 'vitamin', 'supplement', 'prescription',
+    'available', 'stock', 'price', 'cost', 'buy', 'order', 'pharmacy', 'pharmaceutical',
+    
+    // Mongolian
+    'эм', 'эмийн', 'таблет', 'капсул', 'сироп', 'тарилгын', 'витамин', 'бэлдмэл',
+    'парацэтэмол', 'аспирин', 'ибупрофен', 'байгаа', 'агуулах', 'үнэ', 'худалдаж авах',
+    'захиалах', 'эмийн сан', 'эмийн бүтээгдэхүүн', 'хэрэглэх', 'унших', 'дэлгэрэнгүй'
+  ];
+  
+  const messageLower = message.toLowerCase();
+  return productKeywords.some(keyword => messageLower.includes(keyword));
 }
 
 /**
