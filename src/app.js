@@ -229,7 +229,7 @@ try {
     }
   });
 
-  // Chat endpoint with FAQ integration
+  // Chat endpoint with product search priority
   app.post('/api/chat', async (req, res) => {
     const startTime = Date.now();
     
@@ -244,8 +244,45 @@ try {
         return res.status(400).json({ error: 'Message too long' });
       }
 
-      // **STEP 1: Check FAQ with enhanced detection**
-      console.log('🔍 Simple chat checking FAQ for:', message);
+      // **STEP 1: Check if this is a product-related query**
+      const isProductQuery = isProductRelatedQuery(message);
+      
+      if (isProductQuery) {
+        console.log('🔍 Product query detected:', message);
+        
+        // Search for products first
+        const searchResults = await ProductSearchService.search(message, {
+          limit: 5,
+          threshold: 0.3,
+          includeInactive: true
+        });
+        
+        if (searchResults.products && searchResults.products.length > 0) {
+          console.log(`✅ Found ${searchResults.products.length} products matching query`);
+          
+          // Build product response
+          const productList = searchResults.products.map((product, index) => {
+            return `${index + 1}. ${product.name} - ${product.formattedPrice || 'Цаг бүртгэх'} (${product.available || 0} ширхэг бэлэн)`;
+          }).join('\n');
+          
+          const productResponse = `Би танд ${searchResults.products.length} бүтээгдэхүүн олсон:\n\n${productList}\n\nДэлгэрэнгүй мэдээллийг авахын тулд харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688`;
+          
+          return res.json({
+            reply: productResponse,
+            metadata: {
+              source: 'product_search',
+              productsFound: searchResults.products.length,
+              responseTime: Date.now() - startTime
+            },
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          console.log('❌ No products found for query');
+        }
+      }
+
+      // **STEP 2: Check FAQ with enhanced detection**
+      console.log('🔍 Checking FAQ for:', message);
       const faqResult = FAQService.searchFAQ(message);
       
       // Handle direct FAQ match
@@ -287,7 +324,7 @@ try {
         console.log(`🤖 Using restricted AI in simple chat - ${faqResult.reason} (confidence: ${faqResult.confidence || 0})`);
       }
 
-      // **STEP 2: Use restricted AI for questions not in FAQ**
+      // **STEP 3: Use restricted AI for questions not in FAQ**
       const systemPrompt = `You are a customer support chatbot for Monos Trade LLC.
 
 **CRITICAL RESTRICTIONS:**
@@ -546,5 +583,23 @@ try {
   console.error('❌ Failed to start enterprise app:', error);
   console.error('Stack:', error.stack);
   process.exit(1);
-}/ /   F o r c e   r e b u i l d   1 0 / 1 2 / 2 0 2 5   1 4 : 5 6 : 0 7  
- 
+}
+
+// Helper function to detect product-related queries
+function isProductRelatedQuery(message) {
+  const productKeywords = [
+    // English
+    'medicine', 'medication', 'drug', 'pill', 'tablet', 'capsule', 'syrup', 'injection',
+    'paracetamol', 'acetaminophen', 'ibuprofen', 'aspirin', 'vitamin', 'supplement',
+    'prescription', 'dosage', 'mg', 'ml', 'available', 'stock', 'price', 'cost',
+    
+    // Mongolian
+    'эм', 'эмнэлэг', 'эмийн', 'таблет', 'капсул', 'шингэн', 'тарилга', 'уусмал',
+    'парацэтэмол', 'парацетамол', 'пара', 'витамин', 'өвчин', 'өвчин намдаах',
+    'байгаа', 'байна', 'байгааюу', 'үнэ', 'хэдэн', 'хэдвэ', 'хэдэн төгрөг',
+    'шинж тэмдэг', 'тэмдэг', 'өвчин', 'зовирол', 'зовирол намдаах'
+  ];
+  
+  const lowerMessage = message.toLowerCase();
+  return productKeywords.some(keyword => lowerMessage.includes(keyword.toLowerCase()));
+}
