@@ -125,8 +125,19 @@ export class ProductSearchService {
     const { limit, threshold, category } = options;
 
     try {
+      // Ensure embedding is in the correct format for PostgreSQL
+      let queryEmbedding = embedding;
+      if (typeof embedding === 'string') {
+        try {
+          queryEmbedding = JSON.parse(embedding);
+        } catch (parseError) {
+          console.error('Failed to parse embedding string:', parseError.message);
+          throw new Error('Invalid embedding format');
+        }
+      }
+      
       const { data, error } = await supabase.rpc('match_products', {
-        query_embedding: embedding,
+        query_embedding: queryEmbedding,
         match_threshold: threshold,
         match_count: limit,
         filter_category: category
