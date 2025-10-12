@@ -27,6 +27,8 @@
     "embeddings:all": "node scripts/generate-embeddings.js --all",
     "test:redis": "node test-redis-connection.js",
     "test:redis:full": "node test-redis-integration.js",
+    "test:redis:health": "node redis-health-check.js",
+    "test:redis:caching": "node test-auto-caching.js",
     "test:complete": "node test-complete-flow.js",
     "fix:embeddings": "node fix-existing-embeddings.js"
   },

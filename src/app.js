@@ -456,24 +456,31 @@ try {
   console.log('   TIER 2: Redis Cache (hot data - 5 min TTL)');
   console.log('   TIER 3: Real-time API (on-demand)');
 
-  // Initialize Redis connection
-  try {
-    await DataSyncService.initializeRedis();
-    console.log('✅ Redis initialized');
-  } catch (error) {
-    console.warn('⚠️ Redis unavailable - using database fallback');
-  }
-
-  // Start sync scheduler (production mode)
-  if (config.SYNC.ENABLE_SCHEDULER && config.SERVER.IS_PRODUCTION) {
+  // Start sync scheduler (enabled by default for automatic Redis caching)
+  if (config.SYNC.ENABLE_SCHEDULER) {
     try {
       SyncScheduler.start();
-      console.log('✅ Sync scheduler started');
+      console.log('✅ Sync scheduler started (Redis auto-caching every 5 minutes)');
+      
+      // Run initial sync after 10 seconds to populate cache immediately
+      setTimeout(async () => {
+        console.log('🔄 Running initial cache population...');
+        try {
+          await SyncScheduler.runManualSync('stock', { maxProducts: 100 });
+          console.log('✅ Initial cache populated with 100 products');
+        } catch (error) {
+          console.warn('⚠️ Initial cache population failed:', error.message);
+          console.warn('   Cache will be populated on next scheduled sync (5 min)');
+        }
+      }, 10000);
+      
     } catch (error) {
       console.error('❌ Failed to start scheduler:', error.message);
+      console.log('⚠️ Continuing without scheduler (manual sync still available)');
     }
   } else {
-    console.log('ℹ️ Scheduler disabled (development mode)');
+    console.log('ℹ️ Scheduler disabled (set ENABLE_SCHEDULER=true to enable)');
+    console.log('   Redis cache will NOT auto-update. Run manual syncs or enable scheduler.');
   }
 
   // ==================== ADMIN ENDPOINTS ====================

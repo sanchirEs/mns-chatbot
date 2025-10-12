@@ -387,6 +387,14 @@ export class DataSyncService {
       }
     }
 
+    // Clean product name - remove garbage text
+    const cleanName = this.cleanProductName(product.PRODUCT_NAME || product.NAME);
+    const cleanGenericName = this.cleanProductName(product.GENERIC_NAME);
+    const cleanInternalName = this.cleanProductName(product.INTERNAL_NAME);
+    
+    // Extract dosage information
+    const dosage = this.extractDosage(cleanName);
+
     return {
       id: product.PRODUCT_ID,
       erp_code: product.ERP_PRODUCT_CODE,
@@ -394,10 +402,13 @@ export class DataSyncService {
       barcode: product.BARCODE,
       bind_id: product.BIND_ID,
       
-      name: product.PRODUCT_NAME || product.NAME,
-      generic_name: product.GENERIC_NAME,
-      internal_name: product.INTERNAL_NAME,
+      name: cleanName,
+      generic_name: cleanGenericName,
+      internal_name: cleanInternalName,
       english_name: product.ENG_NAME,
+      
+      // Store extracted dosage for easier filtering
+      volume: dosage || product.VOLUME,
       
       description: this.cleanHtml(product.DESCRIPTION),
       ingredients: this.cleanHtml(product.INGREDIENTS),
@@ -669,6 +680,39 @@ export class DataSyncService {
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .trim();
+  }
+
+  /**
+   * Clean product name - remove garbage text and placeholders
+   */
+  static cleanProductName(name) {
+    if (!name) return '';
+    
+    return name
+      // Remove "Цаг бүртгэх" (placeholder/error text)
+      .replace(/\s*-?\s*Цаг бүртгэх\s*/gi, '')
+      // Remove excessive whitespace
+      .replace(/\s+/g, ' ')
+      // Remove leading/trailing dashes
+      .replace(/^\s*-\s*|\s*-\s*$/g, '')
+      .trim();
+  }
+
+  /**
+   * Extract dosage from product name
+   * Returns: "500мг", "400мкг", "2мл", etc.
+   */
+  static extractDosage(name) {
+    if (!name) return null;
+    
+    // Match patterns like: 500мг, 400mg, 2мл, 1.5г, etc.
+    const dosageMatch = name.match(/(\d+(?:\.\d+)?)\s*(мг|мкг|г|мл|mg|mcg|g|ml)/i);
+    
+    if (dosageMatch) {
+      return dosageMatch[0]; // e.g., "500мг"
+    }
+    
+    return null;
   }
 
   /**

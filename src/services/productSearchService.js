@@ -14,14 +14,14 @@ export class ProductSearchService {
   // ================================================================
 
   /**
-   * Smart hybrid search with three-tier data fetching
+   * Smart hybrid search with three-tier data fetching + intelligent pre-filtering
    */
   static async search(query, options = {}) {
     const {
       limit = 5,
-      threshold = 0.5,  // Lowered from 0.7 to be more permissive
+      threshold = 0.5,
       category = null,
-      includeInactive = true,  // Changed to true to include all products
+      includeInactive = true,
       realTimeStock = false
     } = options;
 
@@ -30,36 +30,62 @@ export class ProductSearchService {
     }
 
     try {
-      // TIER 1: Vector search on products table (static catalog)
+      // Parse query to extract drug name and dosage
+      const parsed = this.parseQuery(query);
+      
+      if (config.LOGGING.LEVEL === 'debug') {
+        console.log(`📝 Parsed query:`, parsed);
+      }
+
+      // STEP 1: Pre-filter candidates by drug name (if detected)
+      let candidates = [];
+      
+      if (parsed.drugName) {
+        // Search for products with matching drug name
+        candidates = await this.preFilterByDrugName(parsed.drugName, parsed.dosage, limit * 3);
+        
+        if (config.LOGGING.LEVEL === 'debug') {
+          console.log(`✅ Pre-filter found ${candidates.length} candidates for "${parsed.drugName}"`);
+        }
+      }
+
+      // STEP 2: Vector search (on filtered candidates or all products)
       const embedding = await this.generateEmbedding(query);
       
-      const vectorResults = await this.vectorSearch(embedding, {
-        limit: limit * 2, // Get more candidates
-        threshold,
-        category,
-        query  // Pass query for fallback
-      });
+      const vectorResults = candidates.length > 0
+        ? await this.vectorSearchInCandidates(embedding, candidates, threshold)
+        : await this.vectorSearch(embedding, {
+            limit: limit * 2,
+            threshold,
+            category,
+            query
+          });
 
       if (vectorResults.length === 0) {
         return { products: [], message: 'No products found matching your query' };
       }
 
-      // TIER 2: Enrich with inventory from cache/DB
+      // STEP 3: Enrich with inventory from cache/DB
       const enriched = await this.enrichWithInventory(vectorResults, includeInactive);
 
-      // TIER 3: Optional real-time API check for critical queries
+      // STEP 4: Optional real-time API check
       if (realTimeStock) {
         await this.enrichWithRealTimeData(enriched);
       }
 
-      // Rank and filter results
-      const ranked = this.rankResults(enriched, query);
-      const final = ranked.slice(0, limit);
+      // STEP 5: Intelligent ranking (prioritize exact drug+dosage matches)
+      const ranked = this.rankResults(enriched, query, parsed);
+      const topResults = ranked.slice(0, limit);
+
+      // Format products for response
+      const formattedProducts = topResults.map(p => this.formatProduct(p));
 
       return {
-        products: final,
+        products: formattedProducts,
         total: ranked.length,
         metadata: {
+          parsed,
+          candidatesFound: candidates.length,
           vectorMatches: vectorResults.length,
           enriched: enriched.length,
           realTimeChecked: realTimeStock,
@@ -299,38 +325,102 @@ export class ProductSearchService {
   // ================================================================
 
   /**
-   * Rank results by relevance
+   * Rank results by relevance with pharmaceutical intelligence
    */
-  static rankResults(products, query) {
+  static rankResults(products, query, parsed = null) {
     const lowerQuery = query.toLowerCase();
 
     return products
       .map(product => {
         let score = product.similarity || 0;
+        const reasons = [];
 
-        // Boost for in-stock items
-        if (product.available > 0) score += 0.15;
+        // BASE SCORE: Vector similarity (0-1 range)
+        reasons.push(`similarity: ${score.toFixed(3)}`);
 
-        // Boost for exact name match
-        if (product.name && product.name.toLowerCase().includes(lowerQuery)) {
+        // PHARMACEUTICAL INTELLIGENCE
+        if (parsed && parsed.drugName) {
+          const productName = (product.name || '').toLowerCase();
+          const genericName = (product.generic_name || '').toLowerCase();
+          
+          // Get all variants for this drug
+          const drugVariants = this.getDrugVariants(parsed.drugName);
+          const isCorrectDrug = drugVariants.some(variant => 
+            productName.includes(variant) || genericName.includes(variant)
+          );
+          
+          // CRITICAL: Exact drug name match (including brand names)
+          if (isCorrectDrug) {
+            score += 0.40; // HUGE boost for correct drug
+            reasons.push('exact drug match +0.40');
+            
+            // CRITICAL: Exact dosage match
+            if (parsed.fullDosage) {
+              const volumeStr = (product.volume || '').toLowerCase();
+              if (productName.includes(parsed.dosage) || volumeStr.includes(parsed.dosage)) {
+                score += 0.30; // Exact dosage match
+                reasons.push(`exact dosage match (${parsed.fullDosage}) +0.30`);
+              } else {
+                // Close dosage (within 20%)
+                const productDosageMatch = productName.match(/(\d+(?:\.\d+)?)\s*(?:мг|мкг|г|мл)/i);
+                if (productDosageMatch) {
+                  const productDosage = parseFloat(productDosageMatch[1]);
+                  const queryDosage = parseFloat(parsed.dosage);
+                  const diff = Math.abs(productDosage - queryDosage) / queryDosage;
+                  
+                  if (diff < 0.2) {
+                    score += 0.15; // Close dosage
+                    reasons.push(`close dosage (${productDosage}${parsed.unit}) +0.15`);
+                  }
+                }
+              }
+            }
+          } else {
+            // PENALTY: Wrong drug (e.g., Pantoprazole when asked for Paracetamol)
+            score -= 0.50;
+            reasons.push('wrong drug -0.50');
+          }
+        }
+
+        // STOCK AVAILABILITY
+        if (product.available > 0) {
+          score += 0.10;
+          reasons.push(`in stock (${product.available}) +0.10`);
+        } else {
+          score -= 0.10;
+          reasons.push('out of stock -0.10');
+        }
+
+        // EXACT NAME MATCH (for non-parsed queries)
+        if (!parsed && product.name && product.name.toLowerCase().includes(lowerQuery)) {
           score += 0.20;
+          reasons.push('name match +0.20');
         }
 
         // Boost for generic name match
-        if (product.generic_name && product.generic_name.toLowerCase().includes(lowerQuery)) {
+        if (!parsed && product.generic_name && product.generic_name.toLowerCase().includes(lowerQuery)) {
           score += 0.15;
+          reasons.push('generic name match +0.15');
         }
 
         // Boost for active products
-        if (product.is_active) score += 0.10;
+        if (product.is_active) {
+          score += 0.05;
+          reasons.push('active +0.05');
+        }
 
         // Boost for good stock levels
-        if (product.available > 50) score += 0.05;
+        if (product.available > 50) {
+          score += 0.05;
+          reasons.push('high stock +0.05');
+        }
 
-        // Penalty for out of stock
-        if (product.available === 0) score -= 0.20;
-
-        return { ...product, _final_score: score };
+        // Store ranking reasons for debugging
+        return { 
+          ...product, 
+          _final_score: score,
+          _ranking_reasons: config.LOGGING.LEVEL === 'debug' ? reasons : undefined
+        };
       })
       .sort((a, b) => b._final_score - a._final_score);
   }
@@ -633,6 +723,199 @@ export class ProductSearchService {
   }
 
   // ================================================================
+  // QUERY PARSING & PRE-FILTERING
+  // ================================================================
+
+  /**
+   * Parse query to extract drug name and dosage
+   */
+  static parseQuery(query) {
+    const text = query.toLowerCase().trim();
+    
+    // Common drug names (Mongolian and English - including typos and variants)
+    const drugDatabase = [
+      // Pain relief - Paracetamol (many spelling variants!)
+      { names: ['парацетамол', 'парацэтамол', 'парацэтэмол', 'парацетмол', 'парацэтмөл', 'парацетамол', 'парацетмол', 'парацетамоль', 'paracetamol'], canonical: 'парацетамол' },
+      { names: ['ибупрофен', 'ибумон', 'ibuprofen', 'ibumon'], canonical: 'ибупрофен' },
+      { names: ['аспирин', 'aspirin'], canonical: 'аспирин' },
+      { names: ['анальгин', 'analgin'], canonical: 'анальгин' },
+      { names: ['диклофенак', 'diclofenac'], canonical: 'диклофенак' },
+      { names: ['кетопрофен', 'ketoprofen'], canonical: 'кетопрофен' },
+      
+      // Antibiotics
+      { names: ['амоксициллин', 'amoxicillin'], canonical: 'амоксициллин' },
+      { names: ['азитромицин', 'azithromycin'], canonical: 'азитромицин' },
+      { names: ['цефтриаксон', 'ceftriaxone'], canonical: 'цефтриаксон' },
+      
+      // Gastrointestinal
+      { names: ['омепразол', 'omeprazole'], canonical: 'омепразол' },
+      { names: ['пантопразол', 'pantoprazole'], canonical: 'пантопразол' },
+      { names: ['метоклопрамид', 'metoclopramide'], canonical: 'метоклопрамид' },
+      
+      // Vitamins
+      { names: ['фолийн хүчил', 'фолиевая кислота', 'folic acid'], canonical: 'фолийн хүчил' },
+      { names: ['витамин', 'vitamin'], canonical: 'витамин' },
+      
+      // Neurological
+      { names: ['церебролизин', 'cerebrolysin'], canonical: 'церебролизин' },
+      { names: ['глицин', 'glycine'], canonical: 'глицин' },
+      
+      // Add more as needed...
+    ];
+
+    // Find matching drug name
+    let drugName = null;
+    let drugVariant = null;
+    
+    for (const drug of drugDatabase) {
+      for (const name of drug.names) {
+        if (text.includes(name)) {
+          drugName = drug.canonical;
+          drugVariant = name;
+          break;
+        }
+      }
+      if (drugName) break;
+    }
+
+    // Extract dosage (e.g., "400мг", "500mg", "2мл", "400" without unit)
+    let dosageMatch = text.match(/(\d+(?:\.\d+)?)\s*(мг|мкг|г|мл|mg|mcg|g|ml|%)/i);
+    let dosage = dosageMatch ? dosageMatch[1] : null;
+    let unit = dosageMatch ? dosageMatch[2].toLowerCase() : null;
+    
+    // If no unit found but there's a number (common in conversational queries)
+    if (!dosage) {
+      const numberOnly = text.match(/(\d+(?:\.\d+)?)/);
+      if (numberOnly) {
+        dosage = numberOnly[1];
+        // Assume mg for typical drug dosages
+        unit = 'мг';
+      }
+    }
+
+    // Normalize units
+    const normalizedUnit = unit ? (
+      unit === 'mg' ? 'мг' :
+      unit === 'mcg' ? 'мкг' :
+      unit === 'g' ? 'г' :
+      unit === 'ml' ? 'мл' :
+      unit
+    ) : null;
+
+    return {
+      drugName,
+      drugVariant,
+      dosage,
+      unit: normalizedUnit,
+      fullDosage: dosage && normalizedUnit ? `${dosage}${normalizedUnit}` : null,
+      originalQuery: query
+    };
+  }
+
+  /**
+   * Pre-filter products by drug name before vector search
+   */
+  static async preFilterByDrugName(drugName, dosage = null, limit = 50) {
+    try {
+      // Get all variants for this drug (e.g., "ибупрофен" → "ибумон", "гофен")
+      const drugVariants = this.getDrugVariants(drugName);
+      
+      // Build OR conditions for all variants
+      const orConditions = drugVariants.map(variant => 
+        `name.ilike.%${variant}%,generic_name.ilike.%${variant}%`
+      ).join(',');
+
+      let query = supabase
+        .from('products')
+        .select('id, name, generic_name, volume, category, manufacturer')
+        .or(orConditions);
+
+      // If dosage specified, prioritize exact dosage matches
+      if (dosage) {
+        // First try exact dosage matches
+        const exactQuery = supabase
+          .from('products')
+          .select('id, name, generic_name, volume, category, manufacturer')
+          .or(orConditions)
+          .or(`name.ilike.%${dosage}%,volume.ilike.%${dosage}%`)
+          .limit(limit);
+
+        const { data: exactMatches } = await exactQuery;
+        
+        if (exactMatches && exactMatches.length > 0) {
+          return exactMatches;
+        }
+      }
+
+      // Fall back to all matches for this drug
+      query = query.limit(limit);
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Pre-filter error:', error);
+        return [];
+      }
+
+      return data || [];
+      
+    } catch (error) {
+      console.error('Pre-filter failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all known variants/brand names for a drug
+   */
+  static getDrugVariants(canonicalName) {
+    const variantsMap = {
+      'ибупрофен': ['ибупрофен', 'ибумон', 'гофен', 'миг', 'нурофен', 'адвил'],
+      'парацетамол': ['парацетамол', 'парацэтамол', 'парацэтэмол', 'парацетмол', 'парацэтмөл', 'чамп', 'панадол', 'калпол'],
+      'пантопразол': ['пантопразол', 'нольпаза', 'контролок', 'панум'],
+      'омепразол': ['омепразол', 'омез', 'лосек'],
+      'аспирин': ['аспирин', 'ацетилсалициловая'],
+      'анальгин': ['анальгин', 'метамизол'],
+      'амоксициллин': ['амоксициллин', 'амоксил', 'флемоксин'],
+      // Add more mappings as needed
+    };
+
+    return variantsMap[canonicalName] || [canonicalName];
+  }
+
+  /**
+   * Vector search within pre-filtered candidates
+   */
+  static async vectorSearchInCandidates(embedding, candidates, threshold = 0.5) {
+    try {
+      if (candidates.length === 0) return [];
+
+      const candidateIds = candidates.map(c => c.id);
+
+      // Use match_products but filter to candidate IDs
+      const { data, error } = await supabase.rpc('match_products', {
+        query_embedding: embedding,
+        match_threshold: threshold,
+        match_count: candidates.length,
+        filter_category: null
+      });
+
+      if (error) throw error;
+
+      // Filter results to only include candidates
+      const filtered = (data || []).filter(result => 
+        candidateIds.includes(result.id)
+      );
+
+      return filtered;
+      
+    } catch (error) {
+      console.error('Vector search in candidates failed:', error);
+      // Fall back to just returning candidates with low similarity
+      return candidates.map(c => ({ ...c, similarity: 0.3 }));
+    }
+  }
+
+  // ================================================================
   // HELPER METHODS
   // ================================================================
 
@@ -675,7 +958,8 @@ export class ProductSearchService {
       // Data source tracking
       dataSource: product._data_source,
       similarity: product.similarity,
-      relevanceScore: product._final_score
+      relevanceScore: product._final_score,
+      rankingReasons: product._ranking_reasons
     };
   }
 
