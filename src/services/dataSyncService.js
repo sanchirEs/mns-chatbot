@@ -208,14 +208,14 @@ export class DataSyncService {
    */
   static async fetchAllProducts(options = {}) {
     const { 
-      maxProducts = config.SYNC?.MAX_PRODUCTS_PER_RUN || 7000, 
-      pageSize = config.SYNC?.PAGE_SIZE || 50,
-      maxPages = config.SYNC?.MAX_PAGES || 150
+      maxProducts = options.maxProducts || null,  // null = no limit (fetch all)
+      pageSize = 50,
+      maxPages = 200  // Support up to 10,000 products (200 pages × 50)
     } = options;
     const allProducts = [];
     let page = 0;
     
-    console.log(`📦 Starting product fetch: up to ${maxProducts} products (${maxPages} pages max)`);
+    console.log(`📦 Starting product fetch: ${maxProducts ? `up to ${maxProducts}` : 'ALL'} products (max ${maxPages} pages)`);
     console.log(`   API: ${this.BUSINESS_API_BASE}/products`);
     
       while (true) {
@@ -264,7 +264,25 @@ export class DataSyncService {
       }
     }
 
-    return maxProducts ? allProducts.slice(0, maxProducts) : allProducts;
+    // Deduplicate products by ID (in case of fetch errors/retries)
+    const uniqueProducts = [];
+    const seenIds = new Set();
+    
+    for (const product of allProducts) {
+      if (!seenIds.has(product.PRODUCT_ID)) {
+        seenIds.add(product.PRODUCT_ID);
+        uniqueProducts.push(product);
+      }
+    }
+    
+    if (uniqueProducts.length < allProducts.length) {
+      const duplicates = allProducts.length - uniqueProducts.length;
+      console.log(`⚠️  Removed ${duplicates} duplicate products`);
+    }
+    
+    console.log(`✅ Unique products fetched: ${uniqueProducts.length}`);
+    
+    return maxProducts ? uniqueProducts.slice(0, maxProducts) : uniqueProducts;
   }
 
   // ================================================================
@@ -335,7 +353,9 @@ export class DataSyncService {
           model: config.AI.EMBEDDING_MODEL || 'text-embedding-3-small',
           input: searchableText.substring(0, 8000) // Limit to 8K chars
         });
-        embedding = result.data[0].embedding;
+        // Convert to PostgreSQL vector format: '[0.1,0.2,0.3,...]'
+        const embeddingArray = result.data[0].embedding;
+        embedding = `[${embeddingArray.join(',)}]`;
         
         // Small delay to avoid rate limits
         await this.sleep(50);

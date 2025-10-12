@@ -20,14 +20,15 @@
     "sync:test": "node scripts/test-sync.js",
     "sync:status": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.getSyncStatus()).then(console.log)\"",
     "migrate": "node scripts/migrate-to-three-tier.js",
-    "sync:full": "node scripts/sync-products.js --max-products=1000",
+    "sync:full": "node scripts/sync-products.js",
     "sync:quick": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.quickStockSync())\"",
     "cache:clear": "node -e \"import('./src/services/dataSyncService.js').then(m => m.DataSyncService.clearAllCaches())\"",
     "embeddings:generate": "node scripts/generate-embeddings.js",
     "embeddings:all": "node scripts/generate-embeddings.js --all",
     "test:redis": "node test-redis-connection.js",
     "test:redis:full": "node test-redis-integration.js",
-    "test:complete": "node test-complete-flow.js"
+    "test:complete": "node test-complete-flow.js",
+    "fix:embeddings": "node fix-existing-embeddings.js"
   },
   "keywords": [
     "ai",
