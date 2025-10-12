@@ -1,7 +1,7 @@
 import { openai, OpenAIService } from '../config/openai.js';
 import config from '../config/environment.js';
 import { ConversationService } from '../services/conversationService.js';
-import { SearchService } from '../services/searchService.js';
+import { ProductSearchService } from '../services/productSearchService.js';
 import { FunctionExecutor } from '../utils/functionExecutor.js';
 import { functionDefinitions, getAvailableFunctions } from '../utils/functionDefinitions.js';
 import FAQService from '../services/faqService.js';
@@ -156,11 +156,12 @@ export async function handleChat(req, res) {
     if (isProductQuery) {
       // **STEP 1A: For product queries, do product search FIRST**
       console.log('🔍 Performing product search for product query...');
-      productSearchResults = await SearchService.intelligentSearch(message, {
+      const searchResult = await ProductSearchService.search(message, {
         limit: 8,
-        threshold: 0.6,
-        minStock: 0
+        threshold: 0.5
       });
+      
+      productSearchResults = searchResult.products || [];
       
       console.log(`✅ Product search found ${productSearchResults.length} results`);
       
@@ -260,11 +261,11 @@ export async function handleChat(req, res) {
     });
 
     // Use already fetched product results or perform new search
-    const relevantProducts = productSearchResults || await SearchService.intelligentSearch(message, {
+    const searchResult = productSearchResults || await ProductSearchService.search(message, {
       limit: 8,
-      threshold: 0.6,
-      minStock: 0
+      threshold: 0.5
     });
+    const relevantProducts = searchResult.products || searchResult;
 
     const productContext = buildProductContext(relevantProducts, message);
     const systemPrompt = buildSystemPrompt(productContext, req.user);
@@ -475,7 +476,8 @@ export async function handleChatStream(req, res) {
     // Get conversation and context
     const conversation = await ConversationService.getOrCreate(userId, actualSessionId, metadata);
     const conversationHistory = await ConversationService.getHistory(conversation.id, { limit: 10 });
-    const relevantProducts = await SearchService.intelligentSearch(message, { limit: 5 });
+    const searchResult = await ProductSearchService.search(message, { limit: 5 });
+    const relevantProducts = searchResult.products || [];
     
     const productContext = buildProductContext(relevantProducts, message);
     const systemPrompt = buildSystemPrompt(productContext, req.user);

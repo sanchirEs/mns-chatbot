@@ -265,7 +265,7 @@ try {
             return `${index + 1}. ${product.name} - ${product.formattedPrice || 'Цаг бүртгэх'} (${product.available || 0} ширхэг бэлэн)`;
           }).join('\n');
           
-          const productResponse = `Би танд ${searchResults.products.length} бүтээгдэхүүн олсон:\n\n${productList}\n\nДэлгэрэнгүй мэдээллийг авахын тулд харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688`;
+          const productResponse = `Би танд ${searchResults.products.length} бүтээгдэхүүн оллоо:\n\n${productList}\n\nДэлгэрэнгүй мэдээллийг авахын тулд харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688`;
           
           return res.json({
             reply: productResponse,
