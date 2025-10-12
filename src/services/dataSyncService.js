@@ -355,7 +355,7 @@ export class DataSyncService {
         });
         // Convert to PostgreSQL vector format: '[0.1,0.2,0.3,...]'
         const embeddingArray = result.data[0].embedding;
-        embedding = `[${embeddingArray.join(',)}]`;
+        embedding = `[${embeddingArray.join(',')}]`;
         
         // Small delay to avoid rate limits
         await this.sleep(50);
