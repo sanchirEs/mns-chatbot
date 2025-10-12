@@ -546,4 +546,5 @@ try {
   console.error('❌ Failed to start enterprise app:', error);
   console.error('Stack:', error.stack);
   process.exit(1);
-}
+}/ /   F o r c e   r e b u i l d   1 0 / 1 2 / 2 0 2 5   1 4 : 5 6 : 0 7  
+ 
