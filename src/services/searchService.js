@@ -353,25 +353,13 @@ export class SearchService {
    */
   static async getItemById(itemId) {
     try {
-      // Try new products_with_inventory view first
-      let { data, error } = await supabase
+      // Query products_with_inventory view
+      const { data, error } = await supabase
         .from('products_with_inventory')
         .select('*')
         .eq('id', itemId)
         .eq('inventory_active', true)
         .single();
-      
-      // Fallback to old items table if new table doesn't exist
-      if (error && error.code === '42P01') {
-        const fallback = await supabase
-          .from('items')
-          .select('*')
-          .eq('id', itemId)
-          .eq('is_active', true)
-          .single();
-        data = fallback.data;
-        error = fallback.error;
-      }
 
       if (error) throw error;
 
@@ -483,44 +471,27 @@ export class SearchService {
     const { limit = 5, category = null } = options;
 
     try {
-      // Try new products_in_stock view first
+      // Query products_in_stock view
       let query = supabase
         .from('products_in_stock')
         .select('*')
         .order('available', { ascending: false }) // High stock = popular
         .limit(limit);
-      
-      // Fallback to old items table if new view doesn't exist
-      let { data, error } = await query;
-      if (error && error.code === '42P01') {
-        query = supabase
-          .from('items')
-          .select('*')
-          .eq('is_active', true)
-          .gt('stock_quantity', 0)
-          .order('stock_quantity', { ascending: false })
-          .limit(limit);
-        const fallback = await query;
-        data = fallback.data;
-        error = fallback.error;
-      } else {
-        // Continue with original query result
-      }
 
       if (category) {
         query = query.eq('category', category);
       }
 
-      const result = await query;
-      if (result.error) throw result.error;
+      const { data, error } = await query;
+      if (error) throw error;
 
-      return (result.data || []).map(item => ({
+      return (data || []).map(item => ({
         id: item.id,
         name: item.name,
         description: item.description,
         category: item.category,
         price: parseFloat(item.price),
-        stock: item.stock_quantity,
+        stock: item.stock_quantity || item.available,
         brand: item.brand
       }));
       

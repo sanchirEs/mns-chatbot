@@ -213,10 +213,12 @@ export class DataSyncService {
       maxPages = 200  // Support up to 10,000 products (200 pages × 50)
     } = options;
     const allProducts = [];
+    const seenIds = new Set(); // Real-time deduplication
     let page = 0;
     
     console.log(`📦 Starting product fetch: ${maxProducts ? `up to ${maxProducts}` : 'ALL'} products (max ${maxPages} pages)`);
     console.log(`   API: ${this.BUSINESS_API_BASE}/products`);
+    console.log(`   Real-time deduplication: ENABLED`);
     
       while (page < maxPages) {
       try {
@@ -258,7 +260,22 @@ export class DataSyncService {
           break;
         }
         
-        allProducts.push(...items);
+        // Real-time deduplication: only add new products
+        let newProductsThisPage = 0;
+        for (const item of items) {
+          if (!seenIds.has(item.PRODUCT_ID)) {
+            seenIds.add(item.PRODUCT_ID);
+            allProducts.push(item);
+            newProductsThisPage++;
+          }
+        }
+        
+        if (newProductsThisPage === 0) {
+          console.log(`⚠️  Page ${page}: All ${items.length} products were duplicates, stopping`);
+          break;
+        }
+        
+        console.log(`📄 Page ${page}: ${newProductsThisPage} new products (${items.length - newProductsThisPage} duplicates skipped)`);
         
         page++;
 
@@ -285,28 +302,10 @@ export class DataSyncService {
       }
     }
     
-    console.log(`\n✅ Fetch complete: ${page} pages retrieved, ${allProducts.length} products (before dedup)`);
+    console.log(`\n✅ Fetch complete: ${page} pages retrieved, ${allProducts.length} unique products`);
+    console.log(`   Real-time deduplication prevented duplicates during fetch`);
     
-
-    // Deduplicate products by ID (in case of fetch errors/retries)
-    const uniqueProducts = [];
-    const seenIds = new Set();
-    
-    for (const product of allProducts) {
-      if (!seenIds.has(product.PRODUCT_ID)) {
-        seenIds.add(product.PRODUCT_ID);
-        uniqueProducts.push(product);
-      }
-    }
-    
-    if (uniqueProducts.length < allProducts.length) {
-      const duplicates = allProducts.length - uniqueProducts.length;
-      console.log(`⚠️  Removed ${duplicates} duplicate products`);
-    }
-    
-    console.log(`✅ Unique products fetched: ${uniqueProducts.length}`);
-    
-    return maxProducts ? uniqueProducts.slice(0, maxProducts) : uniqueProducts;
+    return maxProducts ? allProducts.slice(0, maxProducts) : allProducts;
   }
 
   // ================================================================

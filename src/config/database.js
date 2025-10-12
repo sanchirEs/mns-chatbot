@@ -66,7 +66,7 @@ export async function testDatabaseConnection() {
 
     // Test basic connection with timeout
     const connectionTest = supabase
-      .from('items')
+      .from('products')
       .select('id')
       .limit(1);
 
@@ -137,17 +137,17 @@ export class DatabaseUtils {
   static async getStats() {
     try {
       const [
-        { count: itemCount },
+        { count: productCount },
         { count: conversationCount }, 
         { count: orderCount }
       ] = await Promise.all([
-        supabase.from('items').select('*', { count: 'exact', head: true }),
+        supabase.from('products').select('*', { count: 'exact', head: true }),
         supabase.from('conversations').select('*', { count: 'exact', head: true }),
         supabase.from('orders').select('*', { count: 'exact', head: true })
       ]);
 
       return {
-        items: itemCount || 0,
+        products: productCount || 0,
         conversations: conversationCount || 0,
         orders: orderCount || 0,
         timestamp: new Date().toISOString()

@@ -31,10 +31,24 @@ async function syncProducts() {
       console.log('✅ OpenAI connected');
     }
 
+    // Parse command line arguments
+    const args = process.argv.slice(2);
+    let maxProducts = null; // Default: sync ALL products
+    
+    args.forEach(arg => {
+      if (arg.startsWith('--max-products=')) {
+        const value = parseInt(arg.split('=')[1]);
+        maxProducts = value > 0 ? value : null;
+      }
+    });
+    
+    console.log(`\n🎯 Target: ${maxProducts ? `${maxProducts} products` : 'ALL products (no limit)'}`);
+    console.log(`📍 API: http://mns.bmall.mn/api/products\n`);
+
     // Start synchronization
     const result = await DataSyncService.fullCatalogSync({
-      batchSize: 50,
-      maxProducts: 500,
+      batchSize: 100,
+      maxProducts: maxProducts,
       generateEmbeddings: aiConnected
     });
 
