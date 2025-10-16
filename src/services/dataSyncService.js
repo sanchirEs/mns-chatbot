@@ -20,7 +20,9 @@ export class DataSyncService {
           retryStrategy: (times) => Math.min(times * 50, 2000),
           maxRetriesPerRequest: 3,
           enableReadyCheck: true,
-          lazyConnect: true
+          lazyConnect: true,
+          connectTimeout: 5000,
+          commandTimeout: 5000
         })
       : new Redis({
           host: process.env.REDIS_HOST || 'localhost',
@@ -29,7 +31,9 @@ export class DataSyncService {
           retryStrategy: (times) => Math.min(times * 50, 2000),
           maxRetriesPerRequest: 3,
           enableReadyCheck: true,
-          lazyConnect: true
+          lazyConnect: true,
+          connectTimeout: 5000,
+          commandTimeout: 5000
         })
   ) : null;
 
@@ -49,21 +53,34 @@ export class DataSyncService {
     console.log(`   REDIS_PORT: ${process.env.REDIS_PORT || 'NOT_SET'}`);
 
     try {
-      await this.redis.connect();
+      // Set up error handlers before connecting
       this.redis.on('error', (err) => {
-        console.error('❌ Redis error:', err);
+        console.warn('⚠️ Redis connection error:', err.message);
         this.redisConnected = false;
       });
+      
       this.redis.on('connect', () => {
         console.log('✅ Redis connected successfully');
         this.redisConnected = true;
       });
+      
+      this.redis.on('close', () => {
+        console.log('🔴 Redis connection closed');
+        this.redisConnected = false;
+      });
+      
+      this.redis.on('reconnecting', () => {
+        console.log('🔄 Redis reconnecting...');
+      });
+      
+      await this.redis.connect();
       this.redisConnected = true;
       console.log('✅ Redis initialization completed');
       return true;
     } catch (error) {
       console.warn('⚠️ Redis connection failed - using database fallback:', error.message);
       console.warn('   This is normal if Redis is not configured in your deployment');
+      console.warn('   Your app will work fine with database-only caching');
       this.redisConnected = false;
       return false;
     }
@@ -275,6 +292,7 @@ export class DataSyncService {
         if (products.length > 1000 && batchNum % 10 === 0) {
           const progress = Math.floor((i / products.length) * 100);
           console.log(`📊 Progress: ${progress}% (${stats.processed}/${products.length} processed)`);
+          console.log(`🔴 Redis: ${stats.cached} products cached successfully`);
         }
       }
 
@@ -600,26 +618,16 @@ export class DataSyncService {
    * Cache product inventory in Redis (5 min TTL)
    */
   static async cacheProductInventory(product) {
-    // DEBUG: Log Redis status
-    console.log(`🔴 Redis Cache Debug for ${product.PRODUCT_ID}:`);
-    console.log(`   Redis available: ${!!this.redis}`);
-    console.log(`   Redis connected: ${this.redisConnected}`);
-    console.log(`   Redis config: ENABLE_REDIS=${config.REDIS.ENABLE_REDIS}`);
-    console.log(`   Redis URL: ${process.env.REDIS_URL ? 'SET' : 'NOT_SET'}`);
-    
     // Check if Redis is available
     if (!this.redis) {
-      console.log(`   ❌ Redis not configured - skipping cache for ${product.PRODUCT_ID}`);
       return; // Silently skip if Redis not configured
     }
     
     if (!this.redisConnected) {
-      console.log(`   🔄 Attempting Redis connection for ${product.PRODUCT_ID}...`);
       await this.initializeRedis();
     }
 
     if (!this.redisConnected) {
-      console.log(`   ❌ Redis connection failed - using DB fallback for ${product.PRODUCT_ID}`);
       // Silently skip Redis caching (database is source of truth)
       return;
     }
@@ -643,12 +651,9 @@ export class DataSyncService {
         300, // 5 minutes TTL
         JSON.stringify(cacheData)
       );
-      
-      console.log(`   ✅ Cached ${product.PRODUCT_ID} in Redis (TTL: 300s)`);
 
     } catch (error) {
-      console.warn(`   ❌ Redis cache failed for ${product.PRODUCT_ID}:`, error.message);
-      console.warn('   🔄 Using DB fallback...');
+      console.warn(`Redis cache failed for ${product.PRODUCT_ID}:`, error.message);
       await this.cacheToDB(product);
     }
   }
