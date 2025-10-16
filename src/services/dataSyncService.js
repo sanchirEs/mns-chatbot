@@ -41,20 +41,29 @@ export class DataSyncService {
   static async initializeRedis() {
     if (this.redisConnected) return true;
 
+    console.log('🔴 Redis Connection Debug:');
+    console.log(`   Redis client exists: ${!!this.redis}`);
+    console.log(`   ENABLE_REDIS: ${config.REDIS.ENABLE_REDIS}`);
+    console.log(`   REDIS_URL: ${process.env.REDIS_URL ? 'SET' : 'NOT_SET'}`);
+    console.log(`   REDIS_HOST: ${process.env.REDIS_HOST || 'NOT_SET'}`);
+    console.log(`   REDIS_PORT: ${process.env.REDIS_PORT || 'NOT_SET'}`);
+
     try {
       await this.redis.connect();
       this.redis.on('error', (err) => {
-        console.error('Redis error:', err);
+        console.error('❌ Redis error:', err);
         this.redisConnected = false;
       });
       this.redis.on('connect', () => {
-        console.log('✅ Redis connected');
+        console.log('✅ Redis connected successfully');
         this.redisConnected = true;
       });
       this.redisConnected = true;
+      console.log('✅ Redis initialization completed');
       return true;
     } catch (error) {
       console.warn('⚠️ Redis connection failed - using database fallback:', error.message);
+      console.warn('   This is normal if Redis is not configured in your deployment');
       this.redisConnected = false;
       return false;
     }
@@ -591,16 +600,26 @@ export class DataSyncService {
    * Cache product inventory in Redis (5 min TTL)
    */
   static async cacheProductInventory(product) {
+    // DEBUG: Log Redis status
+    console.log(`🔴 Redis Cache Debug for ${product.PRODUCT_ID}:`);
+    console.log(`   Redis available: ${!!this.redis}`);
+    console.log(`   Redis connected: ${this.redisConnected}`);
+    console.log(`   Redis config: ENABLE_REDIS=${config.REDIS.ENABLE_REDIS}`);
+    console.log(`   Redis URL: ${process.env.REDIS_URL ? 'SET' : 'NOT_SET'}`);
+    
     // Check if Redis is available
     if (!this.redis) {
+      console.log(`   ❌ Redis not configured - skipping cache for ${product.PRODUCT_ID}`);
       return; // Silently skip if Redis not configured
     }
     
     if (!this.redisConnected) {
+      console.log(`   🔄 Attempting Redis connection for ${product.PRODUCT_ID}...`);
       await this.initializeRedis();
     }
 
     if (!this.redisConnected) {
+      console.log(`   ❌ Redis connection failed - using DB fallback for ${product.PRODUCT_ID}`);
       // Silently skip Redis caching (database is source of truth)
       return;
     }
@@ -624,9 +643,12 @@ export class DataSyncService {
         300, // 5 minutes TTL
         JSON.stringify(cacheData)
       );
+      
+      console.log(`   ✅ Cached ${product.PRODUCT_ID} in Redis (TTL: 300s)`);
 
     } catch (error) {
-      console.warn('Redis cache failed, using DB fallback:', error.message);
+      console.warn(`   ❌ Redis cache failed for ${product.PRODUCT_ID}:`, error.message);
+      console.warn('   🔄 Using DB fallback...');
       await this.cacheToDB(product);
     }
   }
