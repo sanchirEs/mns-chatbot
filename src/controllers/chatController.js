@@ -13,6 +13,29 @@ import FAQService from '../services/faqService.js';
  */
 
 /**
+ * Convert stock quantity to range format
+ */
+function getStockRange(stock) {
+  const stockNumber = parseInt(stock) || 0;
+  
+  if (stockNumber === 0) {
+    return 'Out of stock';
+  } else if (stockNumber <= 50) {
+    return '1-50';
+  } else if (stockNumber <= 100) {
+    return '51-100';
+  } else if (stockNumber <= 500) {
+    return '101-500';
+  } else if (stockNumber <= 1000) {
+    return '501-1000';
+  } else if (stockNumber <= 2000) {
+    return '1001-2000';
+  } else {
+    return '2000+';
+  }
+}
+
+/**
  * Build intelligent context from search results
  */
 function buildProductContext(items, query) {
@@ -22,8 +45,7 @@ function buildProductContext(items, query) {
 
   const context = items.map((item, index) => 
     `${index + 1}. **${item.name}** (${item.category || 'General'})\n` +
-    `   - Price: $${item.price}\n` +
-    `   - Stock: ${item.stock || item.stock_quantity || 0} available\n` +
+    `   - Stock Range: ${getStockRange(item.stock || item.stock_quantity || 0)}\n` +
     `   - Description: ${item.description || 'N/A'}\n` +
     `   - Brand: ${item.brand || 'N/A'}\n` +
     `   - Prescription Required: ${item.isPrescription || item.is_prescription ? 'Yes' : 'No'}\n` +
@@ -54,19 +76,17 @@ You are a PRODUCT AVAILABILITY assistant. Your main job is to help customers fin
    - DO NOT show unrelated products (e.g., don't show Pantoprazole when asked for Paracetamol)
    - DO NOT show baby wash, medical devices, or other items unless specifically asked
    - Prioritize exact dosage matches, but offer close alternatives if needed
-   - Always show: Product name, Price, Stock level
+   - Always show: Product name, Stock range (NEVER show exact prices or exact stock numbers)
 
 3. EXAMPLE GOOD RESPONSE:
    User: "танайд парацэтмөл 400 байгаа юу?"
    You: "Уучлаарай, яг 400мг дозтой парацэтамол байхгүй байна. Гэхдээ эдгээр төстэй бүтээгдэхүүнүүд бэлэн байна:
    
    1. Парацетамол 500мг №20 - шахмал
-      Үнэ: 3,200₮
-      Нөөц: 150 ширхэг бэлэн
+      Нөөц: 101-500 ширхэг бэлэн
       
    2. Парацетамол 250мг №10 - шахмал
-      Үнэ: 1,800₮
-      Нөөц: 85 ширхэг бэлэн
+      Нөөц: 51-100 ширхэг бэлэн
    
    Та эдгээрийн аль нь тохирох вэ?"
 
@@ -84,7 +104,7 @@ You are a PRODUCT AVAILABILITY assistant. Your main job is to help customers fin
 
 **ALLOWED TOPICS:**
 - Product search and availability
-- Prices and stock levels
+- Stock availability (in ranges, never exact numbers)
 - Product information and descriptions
 - Contact information (phone, email, addresses)
 - Company information and background
