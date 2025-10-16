@@ -18,6 +18,27 @@ try {
 
   console.log('✅ All modules imported successfully');
 
+  // Helper function to convert stock quantity to range format
+  function getStockRange(stock) {
+    const stockNumber = parseInt(stock) || 0;
+    
+    if (stockNumber === 0) {
+      return 'Out of stock';
+    } else if (stockNumber <= 50) {
+      return '1-50';
+    } else if (stockNumber <= 100) {
+      return '51-100';
+    } else if (stockNumber <= 500) {
+      return '101-500';
+    } else if (stockNumber <= 1000) {
+      return '501-1000';
+    } else if (stockNumber <= 2000) {
+      return '1001-2000';
+    } else {
+      return '2000+';
+    }
+  }
+
   // Validate configuration
   validateConfig();
   console.log('✅ Configuration validated');
@@ -262,7 +283,8 @@ try {
           
           // Build product response
           const productList = searchResults.products.map((product, index) => {
-            return `${index + 1}. ${product.name} - ${product.formattedPrice || 'Цаг бүртгэх'} (${product.available || 0} ширхэг бэлэн)`;
+            const stockRange = getStockRange(product.available || 0);
+            return `${index + 1}. ${product.name} - Нөөц: ${stockRange}`;
           }).join('\n');
           
           const productResponse = `Би танд ${searchResults.products.length} бүтээгдэхүүн оллоо:\n\n${productList}\n\nДэлгэрэнгүй мэдээллийг авахын тулд харилцагчийн үйлчилгээтэй холбогдоно уу: +976 7766 6688`;

@@ -9,6 +9,29 @@ import config from '../config/environment.js';
  */
 export class ProductSearchService {
   
+  /**
+   * Convert stock quantity to range format
+   */
+  static getStockRange(stock) {
+    const stockNumber = parseInt(stock) || 0;
+    
+    if (stockNumber === 0) {
+      return 'Out of stock';
+    } else if (stockNumber <= 50) {
+      return '1-50';
+    } else if (stockNumber <= 100) {
+      return '51-100';
+    } else if (stockNumber <= 500) {
+      return '101-500';
+    } else if (stockNumber <= 1000) {
+      return '501-1000';
+    } else if (stockNumber <= 2000) {
+      return '1001-2000';
+    } else {
+      return '2000+';
+    }
+  }
+  
   // ================================================================
   // MAIN SEARCH METHOD (Three-Tier Strategy)
   // ================================================================
@@ -931,14 +954,10 @@ export class ProductSearchService {
       manufacturer: product.manufacturer,
       brand: product.brand,
       
-      // Pricing
-      price: product.price,
-      formattedPrice: `₮${(product.price || 0).toLocaleString()}`,
-      currency: 'MNT',
-      
-      // Stock
+      // Stock (pricing information removed for privacy)
       available: product.available,
       onhand: product.onhand,
+      stockRange: this.getStockRange(product.available),
       stockStatus: this.getStockStatus(product.available),
       inStock: product.available > 0,
       lowStock: product.available > 0 && product.available < 10,
