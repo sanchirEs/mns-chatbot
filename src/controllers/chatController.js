@@ -19,7 +19,7 @@ function getStockRange(stock) {
   const stockNumber = parseInt(stock) || 0;
   
   if (stockNumber === 0) {
-    return 'Out of stock';
+    return 'Үлдэгдэлгүй';
   } else if (stockNumber <= 50) {
     return '1-50';
   } else if (stockNumber <= 100) {

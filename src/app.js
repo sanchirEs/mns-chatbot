@@ -23,7 +23,7 @@ try {
     const stockNumber = parseInt(stock) || 0;
     
     if (stockNumber === 0) {
-      return 'Out of stock';
+      return 'Үлдэгдэлгүй';
     } else if (stockNumber <= 50) {
       return '1-50';
     } else if (stockNumber <= 100) {
@@ -283,7 +283,7 @@ try {
           
           // Build product response
           const productList = searchResults.products.map((product, index) => {
-            const stockRange = getStockRange(product.available || 0);
+            const stockRange = getStockRange(product.available || product.stock || product.stock_quantity || 0);
             return `${index + 1}. ${product.name} - Нөөц: ${stockRange}`;
           }).join('\n');
           
