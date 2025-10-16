@@ -492,18 +492,34 @@ try {
       const schedulerStatus = SyncScheduler.getStatus();
       const cacheStats = await ProductSearchService.getCacheStats();
 
-      res.json({
+      // Enhanced status with production diagnostics
+      const enhancedStatus = {
         success: true,
+        environment: {
+          nodeEnv: process.env.NODE_ENV,
+          schedulerEnabled: config.SYNC.ENABLE_SCHEDULER,
+          redisEnabled: config.REDIS.ENABLE_REDIS,
+          timezone: config.SYNC.TIMEZONE
+        },
         sync: status,
         scheduler: schedulerStatus,
         cache: cacheStats,
+        diagnostics: {
+          uptime: process.uptime(),
+          memory: process.memoryUsage(),
+          lastSyncTime: status.lastSync?.completed || 'never',
+          healthStatus: status.health || 'unknown'
+        },
         timestamp: new Date().toISOString()
-      });
+      };
+
+      res.json(enhancedStatus);
     } catch (error) {
       console.error('Failed to get sync status:', error);
       res.status(500).json({
         success: false,
-        error: error.message
+        error: error.message,
+        timestamp: new Date().toISOString()
       });
     }
   });

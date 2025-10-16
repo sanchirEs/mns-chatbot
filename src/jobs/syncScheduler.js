@@ -21,6 +21,12 @@ export class SyncScheduler {
 
     console.log('📅 Starting sync scheduler...');
     console.log('=' .repeat(60));
+    console.log('🔧 Production sync configuration:');
+    console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`   Scheduler enabled: ${config.SYNC.ENABLE_SCHEDULER}`);
+    console.log(`   Redis enabled: ${config.REDIS.ENABLE_REDIS}`);
+    console.log(`   Timezone: ${config.SYNC.TIMEZONE}`);
+    console.log('=' .repeat(60));
 
     try {
       // Initialize Redis connection
@@ -30,12 +36,20 @@ export class SyncScheduler {
 
       // Job 1: Quick stock sync - Every 5 minutes
       const stockSyncJob = cron.schedule('*/5 * * * *', async () => {
+        const startTime = Date.now();
         console.log('\n⚡ [SCHEDULED] Quick stock sync started...');
+        console.log(`   Time: ${new Date().toISOString()}`);
+        console.log(`   Environment: ${process.env.NODE_ENV}`);
+        
         try {
           const result = await DataSyncService.quickStockSync({ maxProducts: 200 });
-          console.log(`✅ [SCHEDULED] Stock sync completed: ${result.stats.updated} products`);
+          const duration = Date.now() - startTime;
+          console.log(`✅ [SCHEDULED] Stock sync completed: ${result.stats.updated} products (${duration}ms)`);
+          console.log(`   Processed: ${result.stats.processed}, Cached: ${result.stats.cached}, Failed: ${result.stats.failed}`);
         } catch (error) {
-          console.error('❌ [SCHEDULED] Stock sync failed:', error.message);
+          const duration = Date.now() - startTime;
+          console.error(`❌ [SCHEDULED] Stock sync failed after ${duration}ms:`, error.message);
+          console.error('   Stack trace:', error.stack);
         }
       }, {
         scheduled: true,

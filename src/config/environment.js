@@ -143,8 +143,9 @@ export const config = {
     // Rate limiting
     API_RATE_LIMIT_DELAY: parseInt(process.env.API_RATE_LIMIT_DELAY) || 200,
     
-    // Enable/disable scheduler
-    ENABLE_SCHEDULER: process.env.ENABLE_SCHEDULER !== 'false',
+    // Enable/disable scheduler - FIXED: Default to true in production
+    ENABLE_SCHEDULER: process.env.ENABLE_SCHEDULER === 'true' || 
+                     (process.env.NODE_ENV === 'production' && process.env.ENABLE_SCHEDULER !== 'false'),
     TIMEZONE: process.env.TIMEZONE || 'Asia/Ulaanbaatar'
   }
 };
