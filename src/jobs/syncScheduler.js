@@ -42,7 +42,8 @@ export class SyncScheduler {
         console.log(`   Environment: ${process.env.NODE_ENV}`);
         
         try {
-          const result = await DataSyncService.quickStockSync({ maxProducts: 200 });
+          // FIXED: Increase quick sync to handle all products (7k+)
+          const result = await DataSyncService.quickStockSync({ maxProducts: 7000 });
           const duration = Date.now() - startTime;
           console.log(`✅ [SCHEDULED] Stock sync completed: ${result.stats.updated} products (${duration}ms)`);
           console.log(`   Processed: ${result.stats.processed}, Cached: ${result.stats.cached}, Failed: ${result.stats.failed}`);
@@ -84,6 +85,9 @@ export class SyncScheduler {
       const cacheCleanupJob = cron.schedule('0 * * * *', async () => {
         console.log('\n🧹 [SCHEDULED] Cache cleanup started...');
         try {
+          // Import supabase dynamically to avoid import issues
+          const { supabase } = await import('../config/database.js');
+          
           // Clean expired database cache entries
           const { data } = await supabase.rpc('cleanup_expired_cache');
           console.log(`✅ [SCHEDULED] Cleaned ${data || 0} expired cache entries`);
@@ -167,7 +171,7 @@ export class SyncScheduler {
         });
       } else if (type === 'stock' || type === 'quick') {
         return await DataSyncService.quickStockSync({
-          maxProducts: options.maxProducts || 200
+          maxProducts: options.maxProducts || 7000  // FIXED: Support 7k+ products
         });
       } else {
         throw new Error(`Unknown sync type: ${type}`);

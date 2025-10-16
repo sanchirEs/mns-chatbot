@@ -128,9 +128,10 @@ export class DataSyncService {
   
   /**
    * Quick stock sync - inventory table + Redis cache
+   * FIXED: Now supports 7k+ products with optimized batching
    */
   static async quickStockSync(options = {}) {
-    const { maxProducts = 200 } = options;
+    const { maxProducts = 7000 } = options;
     
     const syncId = await this.createSyncLog('stock_only');
     console.log('⚡ Starting QUICK stock sync...');
@@ -144,27 +145,105 @@ export class DataSyncService {
     };
 
     try {
-      // Fetch recent products from business API
+      // Fetch recent products from business API with enhanced error handling
+      console.log(`🌐 Fetching from: ${this.BUSINESS_API_BASE}/products`);
+      console.log(`   Parameters: page=0, size=${maxProducts}, storeId=MK001`);
+      
       const response = await fetch(
         `${this.BUSINESS_API_BASE}/products?page=0&size=${maxProducts}&startDate=2025-01-01&endDate=2025-12-31&storeId=MK001`,
-        { timeout: 10000 }
+        { 
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'Chatbot-Sync/1.0',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        }
       );
       
+      console.log(`📡 API Response: ${response.status} ${response.statusText}`);
+      
       if (!response.ok) {
-        throw new Error(`Business API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`❌ Business API error: ${response.status}`);
+        console.error(`   Error details: ${errorText}`);
+        throw new Error(`Business API error: ${response.status} - ${errorText}`);
       }
       
       const data = await response.json();
-      const products = data.data?.data?.items || [];
+      
+      // DEBUG: Log the API response structure
+      console.log('🔍 API Response Debug:');
+      console.log('   Response status:', response.status);
+      console.log('   Response structure:', JSON.stringify(data, null, 2).substring(0, 500) + '...');
+      
+      // FIXED: Handle multiple API response formats
+      let products = [];
+      if (data.data?.data?.items) {
+        // Format 1: { data: { data: { items: [...] } } }
+        products = data.data.data.items;
+        console.log('   Using format 1: data.data.data.items');
+      } else if (data.data?.items) {
+        // Format 2: { data: { items: [...] } }
+        products = data.data.items;
+        console.log('   Using format 2: data.data.items');
+      } else if (data.items) {
+        // Format 3: { items: [...] }
+        products = data.items;
+        console.log('   Using format 3: data.items');
+      } else if (Array.isArray(data)) {
+        // Format 4: Direct array
+        products = data;
+        console.log('   Using format 4: direct array');
+      } else {
+        console.log('   ❌ No products found in any expected format');
+        console.log('   Available keys:', Object.keys(data));
+      }
 
       console.log(`📦 Fetched ${products.length} products for stock sync`);
 
-      // Update inventory in parallel batches
-      const BATCH_SIZE = 20;
+      // If no products found, try alternative API endpoints
+      if (products.length === 0) {
+        console.log('⚠️  No products found, trying alternative endpoints...');
+        
+        // Try without date filters
+        try {
+          const altResponse = await fetch(
+            `${this.BUSINESS_API_BASE}/products?page=0&size=${maxProducts}&storeId=MK001`,
+            { timeout: 10000 }
+          );
+          
+          if (altResponse.ok) {
+            const altData = await altResponse.json();
+            let altProducts = [];
+            
+            if (altData.data?.data?.items) altProducts = altData.data.data.items;
+            else if (altData.data?.items) altProducts = altData.data.items;
+            else if (altData.items) altProducts = altData.items;
+            else if (Array.isArray(altData)) altProducts = altData;
+            
+            if (altProducts.length > 0) {
+              console.log(`✅ Alternative endpoint found ${altProducts.length} products`);
+              products = altProducts;
+            }
+          }
+        } catch (altError) {
+          console.warn('⚠️  Alternative endpoint also failed:', altError.message);
+        }
+      }
+
+      // OPTIMIZED: Larger batches for 7k+ products, smaller for quick processing
+      const BATCH_SIZE = products.length > 1000 ? 50 : 20;
+      console.log(`🔄 Processing ${products.length} products in batches of ${BATCH_SIZE}...`);
+      
       for (let i = 0; i < products.length; i += BATCH_SIZE) {
         const batch = products.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(products.length / BATCH_SIZE);
         
-        await Promise.allSettled(
+        console.log(`📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} products)...`);
+        
+        const batchResults = await Promise.allSettled(
           batch.map(async (product) => {
             try {
               // Update database inventory
@@ -182,6 +261,12 @@ export class DataSyncService {
             }
           })
         );
+        
+        // Progress tracking for large syncs
+        if (products.length > 1000 && batchNum % 10 === 0) {
+          const progress = Math.floor((i / products.length) * 100);
+          console.log(`📊 Progress: ${progress}% (${stats.processed}/${products.length} processed)`);
+        }
       }
 
       const duration = Date.now() - stats.startTime;

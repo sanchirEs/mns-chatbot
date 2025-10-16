@@ -132,8 +132,8 @@ export const config = {
     FULL_SYNC_MAX_PRODUCTS: parseInt(process.env.FULL_SYNC_MAX_PRODUCTS) || null,
     FULL_SYNC_SCHEDULE: process.env.FULL_SYNC_SCHEDULE || '0 2 * * *', // 2 AM daily
     
-    // Quick sync settings
-    QUICK_SYNC_MAX_PRODUCTS: parseInt(process.env.QUICK_SYNC_MAX_PRODUCTS) || 200,
+    // Quick sync settings - FIXED: Support 7k+ products
+    QUICK_SYNC_MAX_PRODUCTS: parseInt(process.env.QUICK_SYNC_MAX_PRODUCTS) || 7000,
     QUICK_SYNC_SCHEDULE: process.env.QUICK_SYNC_SCHEDULE || '*/5 * * * *', // Every 5 min
     
     // Embedding settings
